@@ -42,8 +42,8 @@ switch Data_id
         drop_num_end = 1750; 
     case 229
         time_offset = -1750;
-        drop_num_start = 2750;
-        drop_num_end = 1500; 
+        drop_num_start = 0;
+        drop_num_end = 0; 
     case 1001
         time_offset = 0;
         drop_num_start = 4000;

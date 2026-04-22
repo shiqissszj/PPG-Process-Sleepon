@@ -61,7 +61,7 @@ else
         PR = single(-1);
     else
         greenPeakDiff1 = diff(peakLocG1);
-        deltaPR2 = rmoutliers(greenPeakDiff1);
+        deltaPR2 = remove_outliers_for_codegen(greenPeakDiff1);
         PR = single(60/(mean(deltaPR2)/single(samplingRate)));  %BPM
     end
     if length(peakLocG1) < 2 || PR < 35
@@ -71,7 +71,7 @@ else
 end
 
 % PI calculaton
-PI = peak2peak(ppgFilteredR)/mean(dcR);
+PI = peak_to_peak(ppgFilteredR)/mean(dcR);
 
 [outputR, isValidR] = calculate_r_protected(ppgFilteredG, ppgFilteredR, ppgFilteredIR, dcR, dcIR);
 
@@ -192,6 +192,35 @@ isValid = isfinite(outputR);
 if ~isValid
     outputR = single(NaN);
 end
+end
+
+function outputValues = remove_outliers_for_codegen(inputValues)
+
+if numel(inputValues) <= 2
+    outputValues = inputValues;
+    return
+end
+
+centerValue = median(inputValues);
+absDeviation = abs(inputValues - centerValue);
+madValue = median(absDeviation);
+
+if madValue <= single(1e-6)
+    outputValues = inputValues;
+    return
+end
+
+keepMask = absDeviation <= single(3.0) * madValue;
+if any(keepMask)
+    outputValues = inputValues(keepMask);
+else
+    outputValues = inputValues;
+end
+end
+
+function outputValue = peak_to_peak(inputSignal)
+
+outputValue = max(inputSignal) - min(inputSignal);
 end
 
 function outputValue = clamp01(inputValue)
