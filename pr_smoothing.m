@@ -4,6 +4,8 @@ coder.inline('never')
 
 % parameters
 smoothBufferSizePR = 10;
+warmupBypassCount = 4;
+warmupMedianCount = 7;
 
 % initialize the static local buffer
 persistent PRSmoothBuffer;
@@ -18,8 +20,14 @@ end
 bufferIndex = mod(outputCounter-1, smoothBufferSizePR) + 1; 
 % Insert the new value
 PRSmoothBuffer(bufferIndex) = inputPR; 
-% compute the first level of smoothed values
-if outputCounter >= smoothBufferSizePR
+
+if outputCounter <= warmupBypassCount
+    firstSmoothedPR = inputPR;
+elseif outputCounter <= warmupMedianCount
+    warmupWindowLength = min(outputCounter, uint32(5));
+    startIndex = double(outputCounter - warmupWindowLength + 1);
+    firstSmoothedPR = median(PRSmoothBuffer(startIndex:double(outputCounter)));
+elseif outputCounter >= smoothBufferSizePR
     firstSmoothedPR = median(PRSmoothBuffer); % Compute the median of the buffer
 else
     firstSmoothedPR = median(PRSmoothBuffer(1:outputCounter)); % For initial values when buffer is not full
@@ -27,4 +35,3 @@ end
 
 outputPR = firstSmoothedPR;
 end
-

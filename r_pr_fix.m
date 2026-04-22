@@ -10,7 +10,9 @@ fixBufferSize = 25;
 confidenceBufferSize = 30;
 defaultR = single(0.35);
 defaultPR = single(60);
-confidenceThreshold = 0.75;
+confidenceThresholdR = single(0.45);
+confidenceThresholdPR = single(0.55);
+confidenceFloorPR = single(0.35);
 defaultConfidence = single(0.5);
 
 % initialize the static local buffer
@@ -19,6 +21,7 @@ persistent fixBufferPR;
 persistent confidenceBuffer;
 persistent reliableCounterR;
 persistent reliableCounterG;
+persistent prSeeded;
 
 if outputCounter == 1
     fixBufferR = zeros(fixBufferSize,1,'single');
@@ -26,6 +29,7 @@ if outputCounter == 1
     confidenceBuffer = zeros(confidenceBufferSize,1,'single');
     reliableCounterR = uint32(0);
     reliableCounterG = uint32(0);
+    prSeeded = false;
 end
 if isempty(fixBufferR)
     fixBufferR = zeros(fixBufferSize,1,'single');
@@ -41,6 +45,9 @@ if isempty(reliableCounterR)
 end
 if isempty(reliableCounterG)
     reliableCounterG = uint32(0);
+end
+if isempty(prSeeded)
+    prSeeded = false;
 end
 
 % smooth the confidence
@@ -65,50 +72,73 @@ else
     outputConfidenceR = single(0);
 end
 
-if outputConfidenceR > confidenceThreshold
+if outputConfidenceR > confidenceThresholdR
     reliableCounterR = reliableCounterR + 1;
 end
 
-if confidenceG > confidenceThreshold
+if confidenceG > confidenceThresholdPR
     reliableCounterG = reliableCounterG + 1;
 end
-    
+
+if ~prSeeded && inputPR > 0 && confidenceG > confidenceFloorPR
+    fixBufferPR(:) = inputPR;
+    reliableCounterG = max(reliableCounterG, uint32(1));
+    prSeeded = true;
+end
 
 fixBufferIndexR = mod(reliableCounterR-1, fixBufferSize) + 1; % Circular buffer index
 fixBufferIndexG = mod(reliableCounterG-1, fixBufferSize) + 1; % Circular buffer index
 
-if outputConfidenceR < confidenceThreshold || confidenceR < confidenceThreshold % fix the R and PR value
+if outputConfidenceR < confidenceThresholdR || confidenceR < confidenceThresholdR % fix the R and PR value
     if reliableCounterR >= fixBufferSize
         fixedR = mean(fixBufferR);
-        fixedR = fixedR*(1-confidenceR) + inputR * confidenceR;
+        if isfinite(inputR) && inputR > 0
+            fixedR = fixedR*(1-confidenceR) + inputR * confidenceR;
+        end
     elseif reliableCounterR > 1
         fixedR = mean(fixBufferR(1:reliableCounterR-1));
-        fixedR = fixedR*(1-confidenceR) + inputR * confidenceR;
+        if isfinite(inputR) && inputR > 0
+            fixedR = fixedR*(1-confidenceR) + inputR * confidenceR;
+        end
     else
-        fixedR = defaultR;
+        if isfinite(inputR) && inputR > 0
+            fixedR = defaultR * (1-confidenceR) + inputR * confidenceR;
+        else
+            fixedR = defaultR;
+        end
     end
 else % keep the original value
     fixedR = inputR;
 end
 
-if confidenceG < confidenceThreshold % fix the R and PR value
+if confidenceG < confidenceThresholdPR % fix the R and PR value
     if reliableCounterG > fixBufferSize
-        fixedPR = mean(fixBufferPR);
+        fallbackPR = mean(fixBufferPR);
     elseif reliableCounterG > 1
-        fixedPR = mean(fixBufferPR(1:reliableCounterG-1));
+        fallbackPR = mean(fixBufferPR(1:reliableCounterG-1));
     else
-        fixedPR = defaultPR;
+        fallbackPR = defaultPR;
+    end
+
+    if inputPR > 0 && confidenceG > confidenceFloorPR
+        prBlend = (confidenceG - confidenceFloorPR) / (confidenceThresholdPR - confidenceFloorPR);
+        prBlend = min(max(prBlend, single(0)), single(1));
+        fixedPR = fallbackPR * (single(1) - prBlend) + inputPR * prBlend;
+    elseif inputPR > 0 && reliableCounterG == 0
+        fixedPR = inputPR;
+    else
+        fixedPR = fallbackPR;
     end
 else % keep the original value
     fixedPR = inputPR;
 end
 
 % update the buffer for fix
-if outputConfidenceR >= confidenceThreshold %|| outputCounter <= fixBufferSize 
+if outputConfidenceR >= confidenceThresholdR %|| outputCounter <= fixBufferSize 
     fixBufferR(fixBufferIndexR) = fixedR;
     % fixBufferR = [fixBufferR(2:fixBufferSize);fixedR];
 end
-if confidenceG >= confidenceThreshold %|| outputCounter <= fixBufferSize 
+if confidenceG >= confidenceThresholdPR %|| outputCounter <= fixBufferSize 
     fixBufferPR(fixBufferIndexG) = fixedPR;
     % fixBufferPR = [fixBufferPR(2:fixBufferSize);fixedPR];
 end
@@ -116,4 +146,3 @@ outputR = fixedR;
 outputPR = fixedPR;
 
 end
-

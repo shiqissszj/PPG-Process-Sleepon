@@ -1,10 +1,10 @@
-function [outputFlag, outputPR, outputSpO2, outputPI, confidenceR, R] = ppg_process(inputSampleR,inputSampleIR,inputSampleG,inputCounter,bodyMove)
+function [outputFlag, outputPR, outputSpO2, outputPI, confidenceR, R, rawPR, confidenceG, fixedPR] = ppg_process(inputSampleR,inputSampleIR,inputSampleG,inputCounter,bodyMove)
 
 coder.inline('never')
 
 % paremeters
 samplingRate = uint32(50); % Sampling rate in Hz
-windowLength = 2; % Window length in seconds
+windowLength = 3; % Window length in seconds
 windowSize = windowLength * samplingRate;
 stepSize = 1 * samplingRate; % 1 second step
 
@@ -98,14 +98,18 @@ if outputFlag
     outputPR = round(smoothedPR);
     outputSpO2 = calculate_spo2(smoothedR);
     outputPI = PI;
+    rawPR = PR;
+    fixedPR = fixedPR;
 else
     outputPR = single(0);
     outputSpO2 = single(0);
     % linearSpO2 = single(NaN);
     outputPI = single(0);
     confidenceR = single(0);
+    confidenceG = single(0);
     smoothedR = single(0);
     R = single(0);
+    rawPR = single(0);
+    fixedPR = single(0);
 end
 end
-
