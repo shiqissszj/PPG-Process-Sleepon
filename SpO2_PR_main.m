@@ -1,5 +1,5 @@
-clear;
-clc;
+% clear;
+% clc;
 
 % 20260202 regression
 % remove 195,199,202,229
@@ -9,7 +9,7 @@ clc;
 %     1004,1005,1006,1007,1008,1009,1010,1011,1012,1013,1014,1015,1016,1017,1018, ...
 %     1019,1020,1021,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010,2011,2012,2013,2014];
 
-dataIDList = 1004;
+dataIDList = 1023;
 R_SpO2_values = cell(length(dataIDList), 1);
 autoTimeOffset = true;
 
@@ -71,9 +71,6 @@ for k = 1:length(dataIDList)
     % linearSpO2Values = zeros(num_windows, 1);% for evaluation
     RValues = zeros(num_windows, 1); % for evaluation
     PRValues = zeros(num_windows, 1);
-    rawPRValues = zeros(num_windows, 1);
-    fixedPRValues = zeros(num_windows, 1);
-    confidenceGValues = zeros(num_windows, 1);
     SQIValues = zeros(num_windows, 6);
     trueSPO2 = zeros(num_windows, 1);
     truePR = zeros(num_windows, 1);
@@ -86,16 +83,13 @@ for k = 1:length(dataIDList)
 
     for i = 1:size(ppg_r,1)
 
-        [outputFlag, outputPR, outputSpO2, outputPI, confidence, smoothedR, rawPR, confidenceG, fixedPR] = ...
+        [outputFlag, outputPR, outputSpO2, outputPI, confidence, smoothedR] = ...
             ppg_process(single(ppg_r(i)),single(ppg_ir(i)),single(ppg_g(i)), uint32(i), single(bodyMove(i)));
         if outputFlag
             windowCounter = windowCounter+1;
             piecewiseSpO2Values(windowCounter) = outputSpO2;
             % linearSpO2Values(windowCounter) = linearSpO2;
             PRValues(windowCounter) = outputPR;
-            rawPRValues(windowCounter) = rawPR;
-            fixedPRValues(windowCounter) = fixedPR;
-            confidenceGValues(windowCounter) = confidenceG;
             SQIValues(windowCounter,:) = outputPI;
             confidenceValues(windowCounter) = confidence;
             RValues(windowCounter) = smoothedR;
@@ -137,8 +131,8 @@ for k = 1:length(dataIDList)
 
     [alignedSpO2Est, alignedSpO2True, alignedConfidence, alignedRValues] = ...
         align_series_pair(piecewiseSpO2Values, trueSPO2, spo2_time_offset, samplingRate, confidenceValues, RValues);
-    [alignedPREst, alignedPRTrue, alignedRawPR, alignedFixedPR, alignedConfidenceG, alignedOutputPR] = ...
-        align_series_pair(PRValues, truePR, pr_time_offset, samplingRate, rawPRValues, fixedPRValues, confidenceGValues, PRValues);
+    [alignedPREst, alignedPRTrue] = ...
+        align_series_pair(PRValues, truePR, pr_time_offset, samplingRate);
 
     validPRMask = alignedPREst > 0 & alignedPRTrue > 0 & isfinite(alignedPREst) & isfinite(alignedPRTrue);
     plotPREst = alignedPREst;
@@ -150,57 +144,31 @@ for k = 1:length(dataIDList)
     reliableRatio = sum(reliableMask) / numel(alignedConfidence);
     prRMSE = rmse(alignedPREst(validPRMask), alignedPRTrue(validPRMask), "omitnan");
 
-    % figure(1); clf;
-    % plot(alignedSpO2Est(1:end)), hold on; plot(alignedSpO2True(1:end)); 
-    % scatter(find(~reliableMask), alignedSpO2Est(~reliableMask),6,'filled','MarkerFaceColor',"#FF0000")
-    % % plot(find(confidenceValues>0.6),calculate_spo2(smoothdata(RValues(confidenceValues>0.6),'movmedian',30)));
-    % hold off;
-    % legend('Estimated SpO2', 'True SpO2', 'Location','northoutside','NumColumns', 3)
-    % ylim([70, 100])
-    % text(0, 75, append('RMSE: ', string(overallRMSE)));
-    % text(0, 73, append('RMSE for confidence > 0.6: ', string(reliableRMSE)));
-    % text(0, 71, append('Ratio for confidence > 0.6: ', string(reliableRatio)));
-    % text(0, 69, append('SpO2 auto offset (samples): ', string(spo2_time_offset)));
-    % text(0, 67, append('SpO2 total offset (samples): ', string(baseTimeOffset + spo2_time_offset)));
-    % title(append('Estimated SpO2 ', string(dataID)));
-    % % print(gcf, '-dpng', append('Estimated SpO2 ', string(dataID), '.png'), '-r600');
-    % 
-    % figure(2); clf;
-    % plot(plotPREst); hold on; plot(alignedPRTrue); hold off;
-    % text(0, 45, append('RMSE: ', string(prRMSE))); 
-    % text(0, 42, append('PR auto offset (samples): ', string(pr_time_offset)));
-    % text(0, 39, append('PR total offset (samples): ', string(baseTimeOffset + pr_time_offset)));
-    % legend('Calculated PR', 'True PR', 'Location','northoutside','NumColumns', 2)
-    % ylim([40, 100])
-    % title(append('Estimated PR ', string(dataID)));
+    figure(1); clf;
+    plot(alignedSpO2Est(1:end)), hold on; plot(alignedSpO2True(1:end)); 
+    scatter(find(~reliableMask), alignedSpO2Est(~reliableMask),6,'filled','MarkerFaceColor',"#FF0000")
+    % plot(find(confidenceValues>0.6),calculate_spo2(smoothdata(RValues(confidenceValues>0.6),'movmedian',30)));
+    hold off;
+    legend('Estimated SpO2', 'True SpO2', 'Location','northoutside','NumColumns', 3)
+    ylim([70, 100])
+    text(0, 75, append('RMSE: ', string(overallRMSE)));
+    text(0, 73, append('RMSE for confidence > 0.6: ', string(reliableRMSE)));
+    text(0, 71, append('Ratio for confidence > 0.6: ', string(reliableRatio)));
+    text(0, 69, append('SpO2 auto offset (samples): ', string(spo2_time_offset)));
+    text(0, 67, append('SpO2 total offset (samples): ', string(baseTimeOffset + spo2_time_offset)));
+    title(append('Estimated SpO2 ', string(dataID)));
+    % print(gcf, '-dpng', append('Estimated SpO2 ', string(dataID), '.png'), '-r600');
+
+    figure(2); clf;
+    plot(plotPREst); hold on; plot(alignedPRTrue); hold off;
+    text(0, 45, append('RMSE: ', string(prRMSE))); 
+    text(0, 42, append('PR auto offset (samples): ', string(pr_time_offset)));
+    text(0, 39, append('PR total offset (samples): ', string(baseTimeOffset + pr_time_offset)));
+    legend('Calculated PR', 'True PR', 'Location','northoutside','NumColumns', 2)
+    ylim([40, 100])
+    title(append('Estimated PR ', string(dataID)));
 
     % print(gcf, '-dpng', append('Estimated PR ', string(dataID), '.png'), '-r600');
-
-    % figure(3); clf;
-    % plot(alignedRawPR, 'LineWidth', 1.0); hold on;
-    % plot(alignedFixedPR, 'LineWidth', 1.0);
-    % plot(alignedOutputPR, 'LineWidth', 1.0);
-    % plot(alignedPRTrue, 'LineWidth', 1.0);
-    % hold off;
-    % legend('Raw PR', 'Fixed PR', 'Output PR', 'True PR', 'Location', 'northoutside', 'NumColumns', 4)
-    % ylim([40, 110])
-    % title(append('PR Debug ', string(dataID)));
-    % 
-    % figure(4); clf;
-    % yyaxis left;
-    % plot(alignedConfidenceG, 'LineWidth', 1.0); hold on;
-    % yline(0.35, '--');
-    % yline(0.55, '--');
-    % ylim([0, 1]);
-    % ylabel('confidenceG');
-    % yyaxis right;
-    % plot(alignedRawPR, 'LineWidth', 1.0);
-    % plot(alignedFixedPR, 'LineWidth', 1.0);
-    % ylim([40, 110]);
-    % ylabel('PR');
-    % hold off;
-    % legend('confidenceG', 'PR floor', 'PR threshold', 'Raw PR', 'Fixed PR', 'Location', 'northoutside', 'NumColumns', 3)
-    % title(append('PR Confidence Debug ', string(dataID)));
 
     R_SpO2_values{k} = [alignedRValues(reliableMask), alignedSpO2True(reliableMask)];
     fprintf('Data No. %d\n', dataID)

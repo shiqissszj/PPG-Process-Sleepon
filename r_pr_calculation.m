@@ -10,16 +10,19 @@ confidence = single(1);
 windowSize = single(length(windowR));
 windowSampleCount = length(windowR);
 stepSize = double(samplingRate);
+maxExpandedCount = windowSampleCount * 2;
 
 persistent previousConfidenceG;
 persistent previousPRG;
 persistent previousPRGValidCount;
+persistent expandedGreenInputBuffer;
 
 if outputCounter == 1
     % initialize
     previousConfidenceG = single(0.6);
     previousPRG = zeros(windowSampleCount, 1, 'single');
     previousPRGValidCount = uint32(0);
+    expandedGreenInputBuffer = zeros(maxExpandedCount, 1, 'single');
 end
 if isempty(previousConfidenceG)
     previousConfidenceG = single(0.6);
@@ -30,6 +33,9 @@ end
 if isempty(previousPRGValidCount)
     previousPRGValidCount = uint32(0);
 end
+if isempty(expandedGreenInputBuffer)
+    expandedGreenInputBuffer = zeros(maxExpandedCount, 1, 'single');
+end
 
 [dcR, dcIR, ~, acGRaw, acR, acIR, acG, ppgFilteredR, ppgFilteredIR, ppgFilteredG, ~, outlierNumG, delay1, delay2] = ...
     preprocess_ppg_window_shared(windowR, windowIR, windowG, samplingRate);
@@ -37,15 +43,25 @@ end
 % Preserve the legacy PR behavior: peak detection uses an expanded green
 % signal built from a rolling history plus the current aligned AC green.
 validHistoryCount = double(previousPRGValidCount);
+expandedCount = validHistoryCount + windowSampleCount;
+
 if validHistoryCount > 0
-    ppgHistoryG = previousPRG(end-validHistoryCount+1:end);
-    ppgExpandedInputG = [ppgHistoryG; acGRaw];
-else
-    ppgExpandedInputG = acGRaw;
+    historyStartIdx = windowSampleCount - validHistoryCount + 1;
+    for idx = 1:validHistoryCount
+        expandedGreenInputBuffer(idx) = previousPRG(historyStartIdx + idx - 1);
+    end
 end
-[ppgExpandedG, ~] = ac_filter(ppgExpandedInputG);
+for idx = 1:windowSampleCount
+    expandedGreenInputBuffer(validHistoryCount + idx) = acGRaw(idx);
+end
+[ppgExpandedG, ~] = ac_filter(expandedGreenInputBuffer(1:expandedCount));
 ppgNormalizedG = ac_normalize(ppgExpandedG);
-previousPRG = [previousPRG(stepSize + 1:end); acGRaw(1:stepSize)];
+for idx = 1:(windowSampleCount - stepSize)
+    previousPRG(idx) = previousPRG(idx + stepSize);
+end
+for idx = 1:stepSize
+    previousPRG(windowSampleCount - stepSize + idx) = acGRaw(idx);
+end
 previousPRGValidCount = min(previousPRGValidCount + uint32(stepSize), uint32(windowSampleCount));
 
 % PR calculation
@@ -54,15 +70,14 @@ if length(peakLocG0) < 2
     confidence = single(0);
     PR = single(-1);
 else
-    deltaPR = mean(diff(peakLocG0));
+    deltaPR = mean_peak_interval(peakLocG0);
     [~, peakLocG1] = find_peaks(ppgNormalizedG,single(deltaPR*pr2),single(0.1), single(0));
     if length(peakLocG1) < 2
         confidence = single(0);
         PR = single(-1);
     else
-        greenPeakDiff1 = diff(peakLocG1);
-        deltaPR2 = remove_outliers_for_codegen(greenPeakDiff1);
-        PR = single(60/(mean(deltaPR2)/single(samplingRate)));  %BPM
+        meanPeakInterval = robust_mean_peak_interval(peakLocG1);
+        PR = single(60/(meanPeakInterval/single(samplingRate)));  %BPM
     end
     if length(peakLocG1) < 2 || PR < 35
         confidence = single(0);
@@ -196,25 +211,103 @@ end
 
 function outputValues = remove_outliers_for_codegen(inputValues)
 
-if numel(inputValues) <= 2
+inputCount = numel(inputValues);
+
+if inputCount <= 2
     outputValues = inputValues;
     return
 end
 
-centerValue = median(inputValues);
-absDeviation = abs(inputValues - centerValue);
-madValue = median(absDeviation);
+sortedValues = sort_values_for_median(inputValues);
+centerValue = median_of_sorted_values(sortedValues, inputCount);
+
+absDeviation = zeros(size(inputValues), 'single');
+for idx = 1:inputCount
+    deviation = inputValues(idx) - centerValue;
+    if deviation < 0
+        deviation = -deviation;
+    end
+    absDeviation(idx) = deviation;
+end
+
+sortedDeviation = sort_values_for_median(absDeviation);
+madValue = median_of_sorted_values(sortedDeviation, inputCount);
 
 if madValue <= single(1e-6)
     outputValues = inputValues;
     return
 end
 
-keepMask = absDeviation <= single(3.0) * madValue;
-if any(keepMask)
-    outputValues = inputValues(keepMask);
+thresholdValue = single(3.0) * madValue;
+keepCount = 0;
+outputValues = zeros(size(inputValues), 'single');
+for idx = 1:inputCount
+    if absDeviation(idx) <= thresholdValue
+        keepCount = keepCount + 1;
+        outputValues(keepCount) = inputValues(idx);
+    end
+end
+
+if keepCount > 0
+    outputValues = outputValues(1:keepCount);
 else
     outputValues = inputValues;
+end
+end
+
+function outputValue = mean_peak_interval(peakLocs)
+
+intervalCount = length(peakLocs) - 1;
+intervalSum = single(0);
+for idx = 1:intervalCount
+    intervalSum = intervalSum + (peakLocs(idx + 1) - peakLocs(idx));
+end
+outputValue = intervalSum / single(intervalCount);
+end
+
+function outputValue = robust_mean_peak_interval(peakLocs)
+
+intervalCount = length(peakLocs) - 1;
+intervalBuffer = zeros(49, 1, 'single');
+
+for idx = 1:intervalCount
+    intervalBuffer(idx) = peakLocs(idx + 1) - peakLocs(idx);
+end
+
+filteredIntervals = remove_outliers_for_codegen(intervalBuffer(1:intervalCount));
+filteredCount = length(filteredIntervals);
+intervalSum = single(0);
+for idx = 1:filteredCount
+    intervalSum = intervalSum + filteredIntervals(idx);
+end
+outputValue = intervalSum / single(filteredCount);
+end
+
+function sortedValues = sort_values_for_median(inputValues)
+
+inputCount = numel(inputValues);
+sortedValues = inputValues;
+
+for idx = 2:inputCount
+    currentValue = sortedValues(idx);
+    insertIdx = idx - 1;
+
+    while insertIdx >= 1 && sortedValues(insertIdx) > currentValue
+        sortedValues(insertIdx + 1) = sortedValues(insertIdx);
+        insertIdx = insertIdx - 1;
+    end
+
+    sortedValues(insertIdx + 1) = currentValue;
+end
+end
+
+function outputValue = median_of_sorted_values(sortedValues, inputCount)
+
+middleIdx = floor(double(inputCount + 1) / 2);
+if mod(inputCount, 2) == 1
+    outputValue = sortedValues(middleIdx);
+else
+    outputValue = (sortedValues(middleIdx) + sortedValues(middleIdx + 1)) * single(0.5);
 end
 end
 

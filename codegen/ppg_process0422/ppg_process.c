@@ -43,15 +43,14 @@ static bool bufferG_not_empty;
 void ppg_process(float inputSampleR, float inputSampleIR, float inputSampleG,
                  unsigned int inputCounter, float bodyMove, bool *outputFlag,
                  float *outputPR, float *outputSpO2, float outputPI_data[],
-                 int outputPI_size[2], float *confidenceR, float *R,
-                 float *rawPR, float *confidenceG, float *fixedPR)
+                 int outputPI_size[2], float *confidenceR, float *R)
 {
   static float bufferG[50];
   static float bufferIR[50];
   static float bufferR[50];
-  float PR;
-  float b_confidenceG;
-  float b_fixedPR;
+  float b_confidenceR;
+  float confidenceG;
+  float fixedPR;
   float smoothedR;
   unsigned int b_qY;
   int i;
@@ -140,15 +139,14 @@ void ppg_process(float inputSampleR, float inputSampleIR, float inputSampleG,
     memcpy(&windowG[100], &bufferG[0], 50U * sizeof(float));
     /*  calculate the raw R and PR value as well as the confidence */
     b_R = r_pr_calculation(windowR, windowIR, windowG, outputCounter, bodyMove,
-                           &PR, PI, &smoothedR, &b_confidenceG);
+                           &smoothedR, PI, &b_confidenceR, &confidenceG);
     *R = b_R;
-    *confidenceG = b_confidenceG;
     /*  fix the R and PR value based on the confidence */
-    smoothedR = r_pr_fix(b_R, PR, smoothedR, b_confidenceG, outputCounter,
-                         &b_fixedPR, confidenceR);
+    smoothedR = r_pr_fix(b_R, smoothedR, b_confidenceR, confidenceG,
+                         outputCounter, &fixedPR, confidenceR);
     /*  smooth the R and PR value */
     smoothedR = r_smoothing(smoothedR, outputCounter);
-    *outputPR = pr_smoothing(b_fixedPR, outputCounter);
+    *outputPR = pr_smoothing(fixedPR, outputCounter);
     *outputPR = roundf(*outputPR);
     *outputSpO2 = calculate_spo2(smoothedR);
     outputPI_size[0] = 1;
@@ -156,8 +154,6 @@ void ppg_process(float inputSampleR, float inputSampleIR, float inputSampleG,
     for (i = 0; i < 6; i++) {
       outputPI_data[i] = PI[i];
     }
-    *rawPR = PR;
-    *fixedPR = b_fixedPR;
   } else {
     *outputFlag = false;
     *outputPR = 0.0F;
@@ -167,10 +163,7 @@ void ppg_process(float inputSampleR, float inputSampleIR, float inputSampleG,
     outputPI_size[1] = 1;
     outputPI_data[0] = 0.0F;
     *confidenceR = 0.0F;
-    *confidenceG = 0.0F;
     *R = 0.0F;
-    *rawPR = 0.0F;
-    *fixedPR = 0.0F;
   }
 }
 

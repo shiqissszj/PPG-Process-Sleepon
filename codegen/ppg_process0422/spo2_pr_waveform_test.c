@@ -41,9 +41,6 @@ typedef struct {
   float *est_pr;
   float *confidence_r;
   float *r_value;
-  float *raw_pr;
-  float *confidence_g;
-  float *fixed_pr;
   float *true_spo2;
   float *true_pr;
   float *sqi[6];
@@ -70,8 +67,7 @@ static int append_sample(SampleSeries *series, float ppg_r, float ppg_ir,
                          float ppg_g, float body_move, float ref_pr,
                          float ref_spo2);
 static int append_window(WindowSeries *series, float est_spo2, float est_pr,
-                         float confidence_r, float r_value, float raw_pr,
-                         float confidence_g, float fixed_pr,
+                         float confidence_r, float r_value,
                          const float *sqi_values, int sqi_count,
                          float true_spo2, float true_pr);
 static int split_csv_line(char *line, char **fields, int max_fields);
@@ -225,9 +221,6 @@ int main(int argc, char **argv)
     int output_pi_size[2] = {0, 0};
     float confidence_r = 0.0f;
     float r_value = 0.0f;
-    float raw_pr = 0.0f;
-    float confidence_g = 0.0f;
-    float fixed_pr = 0.0f;
     size_t mode_start;
     float true_spo2;
     float true_pr;
@@ -236,7 +229,7 @@ int main(int argc, char **argv)
                 samples.ppg_g[sample_index], (unsigned int)(sample_index + 1U),
                 samples.body_move[sample_index], &output_flag, &output_pr,
                 &output_spo2, output_pi_data, output_pi_size, &confidence_r,
-                &r_value, &raw_pr, &confidence_g, &fixed_pr);
+                &r_value);
 
     if (!output_flag) {
       continue;
@@ -258,9 +251,8 @@ int main(int argc, char **argv)
     }
 
     if (append_window(&windows, output_spo2, output_pr, confidence_r, r_value,
-                      raw_pr, confidence_g, fixed_pr, output_pi_data,
-                      output_pi_size[0] * output_pi_size[1], true_spo2,
-                      true_pr) != 0) {
+                      output_pi_data, output_pi_size[0] * output_pi_size[1],
+                      true_spo2, true_pr) != 0) {
       fprintf(stderr, "Failed to append output window.\n");
       ppg_process_terminate();
       free_sample_series(&samples);
@@ -349,9 +341,6 @@ static void free_window_series(WindowSeries *series)
   free(series->est_pr);
   free(series->confidence_r);
   free(series->r_value);
-  free(series->raw_pr);
-  free(series->confidence_g);
-  free(series->fixed_pr);
   free(series->true_spo2);
   free(series->true_pr);
   for (sqi_index = 0; sqi_index < SQI_COMPONENT_COUNT; ++sqi_index) {
@@ -418,9 +407,6 @@ static int ensure_window_capacity(WindowSeries *series, size_t required)
       (resize_float_array(&series->est_pr, new_capacity) != 0) ||
       (resize_float_array(&series->confidence_r, new_capacity) != 0) ||
       (resize_float_array(&series->r_value, new_capacity) != 0) ||
-      (resize_float_array(&series->raw_pr, new_capacity) != 0) ||
-      (resize_float_array(&series->confidence_g, new_capacity) != 0) ||
-      (resize_float_array(&series->fixed_pr, new_capacity) != 0) ||
       (resize_float_array(&series->true_spo2, new_capacity) != 0) ||
       (resize_float_array(&series->true_pr, new_capacity) != 0)) {
     return -1;
@@ -467,8 +453,7 @@ static int append_sample(SampleSeries *series, float ppg_r, float ppg_ir,
 }
 
 static int append_window(WindowSeries *series, float est_spo2, float est_pr,
-                         float confidence_r, float r_value, float raw_pr,
-                         float confidence_g, float fixed_pr,
+                         float confidence_r, float r_value,
                          const float *sqi_values, int sqi_count,
                          float true_spo2, float true_pr)
 {
@@ -482,9 +467,6 @@ static int append_window(WindowSeries *series, float est_spo2, float est_pr,
   series->est_pr[series->count] = est_pr;
   series->confidence_r[series->count] = confidence_r;
   series->r_value[series->count] = r_value;
-  series->raw_pr[series->count] = raw_pr;
-  series->confidence_g[series->count] = confidence_g;
-  series->fixed_pr[series->count] = fixed_pr;
   series->true_spo2[series->count] = true_spo2;
   series->true_pr[series->count] = true_pr;
   for (sqi_index = 0; sqi_index < SQI_COMPONENT_COUNT; ++sqi_index) {
@@ -989,17 +971,15 @@ static int write_output_csv(const char *path, const WindowSeries *series)
 
   fprintf(file,
           "window_index,estimated_spo2,estimated_pr,confidence_r,r_value,"
-          "raw_pr,confidence_g,fixed_pr,sqi_1,sqi_2,sqi_3,sqi_4,sqi_5,sqi_6,"
-          "true_spo2,true_pr\n");
+          "sqi_1,sqi_2,sqi_3,sqi_4,sqi_5,sqi_6,true_spo2,true_pr\n");
 
   for (index = 0U; index < series->count; ++index) {
     fprintf(file,
             "%zu,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,"
-            "%.9g,%.9g,%.9g,%.9g\n",
+            "%.9g\n",
             index + 1U, series->est_spo2[index], series->est_pr[index],
             series->confidence_r[index], series->r_value[index],
-            series->raw_pr[index], series->confidence_g[index],
-            series->fixed_pr[index], series->sqi[0][index],
+            series->sqi[0][index],
             series->sqi[1][index], series->sqi[2][index], series->sqi[3][index],
             series->sqi[4][index], series->sqi[5][index],
             series->true_spo2[index], series->true_pr[index]);

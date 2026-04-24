@@ -26,8 +26,11 @@ extern void ppg_process(float inputSampleR, float inputSampleIR,
                         float inputSampleG, unsigned int inputCounter,
                         float bodyMove, bool *outputFlag, float *outputPR,
                         float *outputSpO2, float outputPI_data[],
-                        int outputPI_size[2], float *confidenceR, float *R,
-                        float *rawPR, float *confidenceG, float *fixedPR);
+                        int outputPI_size[2], float *confidenceR, float *R);
+
+void ppg_process_emx_free(void);
+
+void ppg_process_emx_init(void);
 
 void ppg_process_init(void);
 

@@ -77,13 +77,10 @@ void main_ppg_process(void)
 {
   float outputPI_data[6];
   float R;
-  float confidenceG;
   float confidenceR;
-  float fixedPR;
   float inputSampleR_tmp;
   float outputPR;
   float outputSpO2;
-  float rawPR;
   int outputPI_size[2];
   bool outputFlag;
   /* Initialize function 'ppg_process' input arguments. */
@@ -91,8 +88,7 @@ void main_ppg_process(void)
   /* Call the entry-point 'ppg_process'. */
   ppg_process(inputSampleR_tmp, inputSampleR_tmp, inputSampleR_tmp,
               argInit_uint32_T(), inputSampleR_tmp, &outputFlag, &outputPR,
-              &outputSpO2, outputPI_data, outputPI_size, &confidenceR, &R,
-              &rawPR, &confidenceG, &fixedPR);
+              &outputSpO2, outputPI_data, outputPI_size, &confidenceR, &R);
 }
 
 /* End of code generation (main.c) */
