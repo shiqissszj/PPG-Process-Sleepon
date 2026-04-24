@@ -9,8 +9,14 @@
 %     1004,1005,1006,1007,1008,1009,1010,1011,1012,1013,1014,1015,1016,1017,1018, ...
 %     1019,1020,1021,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010,2011,2012,2013,2014];
 
-dataIDList = 1023;
+dataIDList = [1001,1002,1003, ...
+    1004,1005,1006,1007,1008,1009,1010,1011,1012,1013,1014,1015,1016,1017,1018, ...
+    1019,1020,1022,1023];
+
+% dataIDList = 1023;
 R_SpO2_values = cell(length(dataIDList), 1);
+spo2RMSEList = nan(length(dataIDList), 1);
+prRMSEList = nan(length(dataIDList), 1);
 autoTimeOffset = true;
 
 samplingRate = 50; % Sampling rate in Hz
@@ -144,29 +150,29 @@ for k = 1:length(dataIDList)
     reliableRatio = sum(reliableMask) / numel(alignedConfidence);
     prRMSE = rmse(alignedPREst(validPRMask), alignedPRTrue(validPRMask), "omitnan");
 
-    figure(1); clf;
-    plot(alignedSpO2Est(1:end)), hold on; plot(alignedSpO2True(1:end)); 
-    scatter(find(~reliableMask), alignedSpO2Est(~reliableMask),6,'filled','MarkerFaceColor',"#FF0000")
-    % plot(find(confidenceValues>0.6),calculate_spo2(smoothdata(RValues(confidenceValues>0.6),'movmedian',30)));
-    hold off;
-    legend('Estimated SpO2', 'True SpO2', 'Location','northoutside','NumColumns', 3)
-    ylim([70, 100])
-    text(0, 75, append('RMSE: ', string(overallRMSE)));
-    text(0, 73, append('RMSE for confidence > 0.6: ', string(reliableRMSE)));
-    text(0, 71, append('Ratio for confidence > 0.6: ', string(reliableRatio)));
-    text(0, 69, append('SpO2 auto offset (samples): ', string(spo2_time_offset)));
-    text(0, 67, append('SpO2 total offset (samples): ', string(baseTimeOffset + spo2_time_offset)));
-    title(append('Estimated SpO2 ', string(dataID)));
-    % print(gcf, '-dpng', append('Estimated SpO2 ', string(dataID), '.png'), '-r600');
-
-    figure(2); clf;
-    plot(plotPREst); hold on; plot(alignedPRTrue); hold off;
-    text(0, 45, append('RMSE: ', string(prRMSE))); 
-    text(0, 42, append('PR auto offset (samples): ', string(pr_time_offset)));
-    text(0, 39, append('PR total offset (samples): ', string(baseTimeOffset + pr_time_offset)));
-    legend('Calculated PR', 'True PR', 'Location','northoutside','NumColumns', 2)
-    ylim([40, 100])
-    title(append('Estimated PR ', string(dataID)));
+    % figure(1); clf;
+    % plot(alignedSpO2Est(1:end)), hold on; plot(alignedSpO2True(1:end)); 
+    % scatter(find(~reliableMask), alignedSpO2Est(~reliableMask),6,'filled','MarkerFaceColor',"#FF0000")
+    % % plot(find(confidenceValues>0.6),calculate_spo2(smoothdata(RValues(confidenceValues>0.6),'movmedian',30)));
+    % hold off;
+    % legend('Estimated SpO2', 'True SpO2', 'Location','northoutside','NumColumns', 3)
+    % ylim([70, 100])
+    % text(0, 75, append('RMSE: ', string(overallRMSE)));
+    % text(0, 73, append('RMSE for confidence > 0.6: ', string(reliableRMSE)));
+    % text(0, 71, append('Ratio for confidence > 0.6: ', string(reliableRatio)));
+    % text(0, 69, append('SpO2 auto offset (samples): ', string(spo2_time_offset)));
+    % text(0, 67, append('SpO2 total offset (samples): ', string(baseTimeOffset + spo2_time_offset)));
+    % title(append('Estimated SpO2 ', string(dataID)));
+    % % print(gcf, '-dpng', append('Estimated SpO2 ', string(dataID), '.png'), '-r600');
+    % 
+    % figure(2); clf;
+    % plot(plotPREst); hold on; plot(alignedPRTrue); hold off;
+    % text(0, 45, append('RMSE: ', string(prRMSE))); 
+    % text(0, 42, append('PR auto offset (samples): ', string(pr_time_offset)));
+    % text(0, 39, append('PR total offset (samples): ', string(baseTimeOffset + pr_time_offset)));
+    % legend('Calculated PR', 'True PR', 'Location','northoutside','NumColumns', 2)
+    % ylim([40, 100])
+    % title(append('Estimated PR ', string(dataID)));
 
     % print(gcf, '-dpng', append('Estimated PR ', string(dataID), '.png'), '-r600');
 
@@ -183,7 +189,16 @@ for k = 1:length(dataIDList)
     fprintf('Total PR offset (samples): %d\n', baseTimeOffset + pr_time_offset)
     fprintf('Window number: %d\n', num_windows)
 
+    spo2RMSEList(k) = overallRMSE;
+    prRMSEList(k) = prRMSE;
+
 end
+
+avgSpO2RMSE = mean(spo2RMSEList, 'omitnan');
+avgPRRMSE = mean(prRMSEList, 'omitnan');
+
+fprintf('\nAverage SpO2 RMSE %.2f\n', avgSpO2RMSE)
+fprintf('Average PR RMSE %.2f\n', avgPRRMSE)
 % save('R_SpO2_values.mat', 'R_SpO2_values')
 
 function [alignedEst, alignedTrue, varargout] = align_series_pair(estimatedSeries, trueSeries, time_offset, samplingRate, varargin)
