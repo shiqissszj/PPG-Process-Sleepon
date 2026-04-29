@@ -81,7 +81,12 @@ if length(peakLocG0) < 2
     PR = single(-1);
 else
     deltaPR = mean_peak_interval(peakLocG0);
-    [~, peakLocG1] = find_peaks(ppgNormalizedG,single(deltaPR*pr2),single(0.1), single(0));
+    deltaForPeak = deltaPR;
+    if trackedPR > 0
+        expectedInterval = single(60) * single(samplingRate) / trackedPR;
+        deltaForPeak = deltaPR * single(0.75) + expectedInterval * single(0.25);
+    end
+    [~, peakLocG1] = find_peaks(ppgNormalizedG,single(deltaForPeak*pr2),single(0.1), single(0));
     if length(peakLocG1) < 2
         confidence = single(0);
         PR = single(-1);

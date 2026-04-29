@@ -1,4 +1,4 @@
 *.png
-.DS_Store
+*.DS_Store
 *.mat
 .DS_Store
