@@ -24,12 +24,15 @@ coder.inline('never')
 %
 % Spo2 = linearFun(linearCoeffs, inputR);
 
+linearCoeffs = [-31.923192186, 111.495758379];
+Spo2 = linearCoeffs(1) * inputR + linearCoeffs(2);
+
 % Quadratic candidate
-quadraticFun = @(x, xdata) x(1) * xdata.^2 + x(2) * xdata + x(3);
-% quadraticCoeffs = [-17.083025, -10.626567, 107.006690];
-% quadraticCoeffs = [-5.709408, -25.587417, 110.219948];
-quadraticCoeffs = [-5.889659, -24.488090, 109.879903];
-Spo2 = quadraticFun(quadraticCoeffs, inputR);
+% quadraticFun = @(x, xdata) x(1) * xdata.^2 + x(2) * xdata + x(3);
+% % quadraticCoeffs = [-17.083025, -10.626567, 107.006690];
+% % quadraticCoeffs = [-5.709408, -25.587417, 110.219948];
+% quadraticCoeffs = [-5.889659, -24.488090, 109.879903];
+% Spo2 = quadraticFun(quadraticCoeffs, inputR);
 
 % Piecewise-linear candidate
 % piecewiseFun = @(b, x) (x <= b(3)).*(b(1) + b(2) * x) + ...
