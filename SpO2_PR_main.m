@@ -17,7 +17,7 @@
 %     201,203,204,206,207,208,209,210,211,212,213,214,215,216, ...
 %     217,218,219,220,221,222,223,224,225,226,227,228,230,231];
 
-dataIDList = 3005;
+dataIDList = 1028;
 R_SpO2_values = cell(length(dataIDList), 1);
 spo2RMSEList = nan(length(dataIDList), 1);
 prRMSEList = nan(length(dataIDList), 1);
@@ -169,14 +169,14 @@ for k = 1:length(dataIDList)
     title(append('Estimated SpO2 ', string(dataID)));
     % print(gcf, '-dpng', append('Estimated SpO2 ', string(dataID), '.png'), '-r600');
 
-    figure(2); clf;
-    plot(plotPREst); hold on; plot(alignedPRTrue); hold off;
-    text(0, 45, append('RMSE: ', string(prRMSE))); 
-    text(0, 42, append('PR auto offset (samples): ', string(pr_time_offset)));
-    text(0, 39, append('PR total offset (samples): ', string(baseTimeOffset + pr_time_offset)));
-    legend('Calculated PR', 'True PR', 'Location','northoutside','NumColumns', 2)
-    ylim([40, 100])
-    title(append('Estimated PR ', string(dataID)));
+    % figure(2); clf;
+    % plot(plotPREst); hold on; plot(alignedPRTrue); hold off;
+    % text(0, 45, append('RMSE: ', string(prRMSE))); 
+    % text(0, 42, append('PR auto offset (samples): ', string(pr_time_offset)));
+    % text(0, 39, append('PR total offset (samples): ', string(baseTimeOffset + pr_time_offset)));
+    % legend('Calculated PR', 'True PR', 'Location','northoutside','NumColumns', 2)
+    % ylim([40, 100])
+    % title(append('Estimated PR ', string(dataID)));
 
     % print(gcf, '-dpng', append('Estimated PR ', string(dataID), '.png'), '-r600');
 

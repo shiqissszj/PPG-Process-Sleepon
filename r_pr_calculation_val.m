@@ -1,4 +1,4 @@
-function [outputR, outputPR, outputSQI, outputConfidenceR, outputConfidenceG, outputClassicR, outputRedAcDc, outputIRAcDc] = r_pr_calculation_val(windowR, windowIR, windowG, samplingRate, outputCounter, bodyMove)
+function [outputR, outputPR, outputSQI, outputConfidenceR, outputConfidenceG, outputClassicR, outputRedAcDc, outputIRAcDc, outputQualityDebug] = r_pr_calculation_val(windowR, windowIR, windowG, samplingRate, outputCounter, bodyMove)
 
 coder.inline('never')
 
@@ -47,7 +47,7 @@ if isempty(trackedConfidence)
     trackedConfidence = single(0);
 end
 
-[dcR, dcIR, ~, acGRaw, acR, acIR, acG, ppgFilteredR, ppgFilteredIR, ppgFilteredG, ~, outlierNumG, delay1, delay2] = ...
+[dcR, dcIR, dcG, acGRaw, acR, acIR, acG, ppgFilteredR, ppgFilteredIR, ppgFilteredG, ~, outlierNumG, delay1, delay2] = ...
     preprocess_ppg_window_shared(windowR, windowIR, windowG, samplingRate);
 
 % Preserve the legacy PR behavior: peak detection uses an expanded green
@@ -99,8 +99,12 @@ else
     end
 end
 
-% PI calculaton
+% PI calculaton. Keep the legacy red PI, and expose the real per-channel PI
+% through outputQualityDebug for validation.
 PI = peak_to_peak(ppgFilteredR)/mean(dcR);
+redPI = PI;
+irPI = peak_to_peak(ppgFilteredIR)/mean(dcIR);
+greenPI = peak_to_peak(ppgFilteredG)/mean(dcG);
 
 [outputR, isValidR] = calculate_r_protected(ppgFilteredG, ppgFilteredR, ppgFilteredIR, dcR, dcIR);
 [outputClassicR, ~, outputRedAcDc, outputIRAcDc] = calculate_classic_r_protected(ppgFilteredR, ppgFilteredIR, dcR, dcIR);
@@ -112,9 +116,9 @@ outputPI = PI;
 % Comment the following code to disable the signal calculation
 
 % Obtain SQI for confidence calculation
-xcorrR_G = sum(ppgFilteredG .* ppgFilteredR)/(sqrt(sum(ppgFilteredR .^2))*sqrt(sum(ppgFilteredG .^2)));
-xcorrIR_G = sum(ppgFilteredG .* ppgFilteredIR)/(sqrt(sum(ppgFilteredIR .^2))*sqrt(sum(ppgFilteredG .^2)));
-xcorrR_IR = sum(ppgFilteredIR .* ppgFilteredR)/(sqrt(sum(ppgFilteredIR .^2))*sqrt(sum(ppgFilteredR .^2)));
+xcorrR_G = safe_norm_corr(ppgFilteredG, ppgFilteredR);
+xcorrIR_G = safe_norm_corr(ppgFilteredG, ppgFilteredIR);
+xcorrR_IR = safe_norm_corr(ppgFilteredIR, ppgFilteredR);
 
 outputSQI = [xcorrR_G,xcorrIR_G,xcorrR_IR,0,0,0];
 
@@ -123,6 +127,10 @@ usedSampleRatio = clamp01(usedSampleRatio);
 
 % Confidence of Green light for the legacy PR path
 outputConfidenceG = usedSampleRatio^2;
+maxCorrValueR = single(NaN);
+maxCorrValueIR = single(NaN);
+maxCorrValueG = single(NaN);
+lowLagCorrValueG = single(NaN);
 
 % Confidence of Red light / SpO2 path
 validR = is_signal_valid(ppgFilteredR);
@@ -189,6 +197,31 @@ end
 previousConfidenceG = outputConfidenceG;
 [trackedPR, trackedConfidence] = update_tracked_pr_state(trackedPR, trackedConfidence, PR, outputConfidenceG, bodyMove);
 
+projGR = sum(ppgFilteredG .* ppgFilteredR);
+projGIR = sum(ppgFilteredG .* ppgFilteredIR);
+guardProjGIR = single(1e-6) + single(1e-3) * mean(abs(ppgFilteredG .* ppgFilteredIR));
+projGuardRatio = abs(projGIR) / guardProjGIR;
+projectionSignMismatch = single(sign(projGR) ~= sign(projGIR));
+
+outputQualityDebug = single([ ...
+    redPI, irPI, greenPI, ...
+    xcorrR_G, xcorrIR_G, xcorrR_IR, ...
+    maxCorrValueR, maxCorrValueIR, maxCorrValueG, lowLagCorrValueG, ...
+    usedSampleRatio, single(delay1), single(delay2), single(outlierNumG) / windowSize, ...
+    projGuardRatio, projectionSignMismatch, ...
+    spo2WindowConfidence, signalConfidence, ...
+    mean(dcR), mean(dcIR), mean(dcG)]);
+
+end
+
+function outputCorr = safe_norm_corr(inputA, inputB)
+
+denom = sqrt(sum(inputA .^ 2)) * sqrt(sum(inputB .^ 2));
+if denom <= single(1e-12) || ~isfinite(denom)
+    outputCorr = single(NaN);
+else
+    outputCorr = sum(inputA .* inputB) / denom;
+end
 end
 
 function isValid = is_signal_valid(inputAC)

@@ -24,8 +24,8 @@ coder.inline('never')
 %
 % Spo2 = linearFun(linearCoeffs, inputR);
 
-linearCoeffs = [-31.923192186, 111.495758379];
-Spo2 = linearCoeffs(1) * inputR + linearCoeffs(2);
+% linearCoeffs = [-31.923192186, 111.495758379];
+% Spo2 = linearCoeffs(1) * inputR + linearCoeffs(2);
 
 % Quadratic candidate
 % quadraticFun = @(x, xdata) x(1) * xdata.^2 + x(2) * xdata + x(3);
@@ -40,6 +40,14 @@ Spo2 = linearCoeffs(1) * inputR + linearCoeffs(2);
 % piecewiseCoeffs = [101.850707, -8.228011, 0.575722, -42.901326];
 % Spo2 = piecewiseFun(piecewiseCoeffs, inputR);
 
+% 仅用新睡眠数据拟合
+% piecewiseCoeffs = [100.454619496, -11.129875023, 0.551943406, -46.127479837];
+% Spo2 = (inputR <= piecewiseCoeffs(3)).*(piecewiseCoeffs(1) + piecewiseCoeffs(2) * inputR) + ...
+%     (inputR > piecewiseCoeffs(3)).*(piecewiseCoeffs(1) + piecewiseCoeffs(2) * piecewiseCoeffs(3) + piecewiseCoeffs(4) * (inputR - piecewiseCoeffs(3)));
+
+% Current calibration from R_SpO2_scatter_for_calibration.m
+linearCoeffs = [-32.500781164, 111.565386517];
+Spo2 = linearCoeffs(1) * inputR + linearCoeffs(2);
+
 Spo2 = max(min(Spo2, 100), 65);
 end
-

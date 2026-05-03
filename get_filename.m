@@ -316,9 +316,9 @@ switch Data_id
     case 1026
         filename = '../../Data/PPG_Collection/on_fingers/No26-0429-孙哲俊-指尖绑带-睡眠/output/Data_ppg_No26_20260429_szj_820_sleep_merged.txt';
     case 1027
-        filename = '../../Data/PPG_Collection/on_fingers/No27-0429-孙哲俊-指尖绑带-睡眠/output/Data_ppg_No27_20260429_szj_821_sleep_merged.txt';
+        filename = '../../Data/PPG_Collection/on_fingers/No27-0429-周鹏-指尖绑带-睡眠/output/Data_ppg_No27_20260429_zp_732_sleep_merged.txt';
     case 1028
-        filename = '../../Data/PPG_Collection/on_fingers/No25-0429-周鹏-指尖绑带-睡眠/output/Data_ppg_No25_20260428_zp_732_sleep_merged.txt';
+        filename = '../../Data/PPG_Collection/on_fingers/No28-0430-孙哲俊-指尖绑带-睡眠/output/Data_ppg_No28_20260430_szj_820_sleep_merged.txt';
 
 
 

@@ -1,4 +1,4 @@
-function [outputFlag, outputPR, outputSpO2, outputPI, confidenceR, rawR, fixedRDebug, smoothedRDebug, classicRDebug, redAcDcDebug, irAcDcDebug] = ppg_process(inputSampleR,inputSampleIR,inputSampleG,inputCounter,bodyMove)
+function [outputFlag, outputPR, outputSpO2, outputPI, confidenceR, rawR, fixedRDebug, smoothedRDebug, classicRDebug, redAcDcDebug, irAcDcDebug, qualityDebug] = ppg_process_val(inputSampleR,inputSampleIR,inputSampleG,inputCounter,bodyMove)
 
 coder.inline('never')
 
@@ -86,7 +86,7 @@ if outputFlag
     windowG = [windowG(stepSize+1:end); bufferG];
 
     % calculate the raw R and PR value as well as the confidence
-    [rawR, PR, PI, confidenceR, confidenceG, classicRDebug, redAcDcDebug, irAcDcDebug] = r_pr_calculation_val(windowR, windowIR, windowG, samplingRate, outputCounter, bodyMove);
+    [rawR, PR, PI, confidenceR, confidenceG, classicRDebug, redAcDcDebug, irAcDcDebug, qualityDebug] = r_pr_calculation_val(windowR, windowIR, windowG, samplingRate, outputCounter, bodyMove);
 
     % fix the R and PR value based on the confidence
     [fixedR, fixedPR, confidenceR] = r_pr_fix(rawR,PR,confidenceR,confidenceG,outputCounter);
@@ -112,5 +112,6 @@ else
     classicRDebug = single(0);
     redAcDcDebug = single(0);
     irAcDcDebug = single(0);
+    qualityDebug = single(zeros(1, 21));
 end
 end

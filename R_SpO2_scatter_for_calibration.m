@@ -12,7 +12,7 @@ clc;
 rng(42);
 
 % ---------------- Configuration ----------------
-candidateMatFiles = {'R_SpO2_values_current.mat', 'R_SpO2_calibration_export_current.mat', 'R_SpO2_values.mat'};
+candidateMatFiles = {'R_SpO2_values_all_to1028.mat'};
 
 validationRatio = 0.30;
 scatterPointSize = 6;
