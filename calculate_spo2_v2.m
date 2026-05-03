@@ -1,0 +1,53 @@
+function Spo2 = calculate_spo2_v2(inputR)
+
+coder.inline('never')
+
+% Calibration candidates from R_SpO2_scatter_v2.m using R_SpO2_values_v2.mat
+%
+% Linear:
+%   SpO2 = -38.673274 * R + 117.855417
+%
+% Quadratic:
+%   SpO2 = -10.521128 * R^2 + -21.712300 * R + 111.509029
+%
+% PiecewiseLinear:
+%   breakpoint = 0.575722
+%   left  : SpO2 = 101.850707 + -8.228011 * R
+%   right : continue from breakpoint with slope -42.901326
+
+% Default active model: Linear
+% linearFun = @(x, xdata) x(1) * xdata + x(2);
+% linearCoeffs = [-38.673274, 117.855417];
+% Spo2 = linearFun(linearCoeffs, inputR);
+% linearFun = @(x,xdata)x(1)*xdata+x(2);
+% linearCoeffs = [-39.9031385316171,120.345434717573];
+%
+% Spo2 = linearFun(linearCoeffs, inputR);
+
+% linearCoeffs = [-31.923192186, 111.495758379];
+% Spo2 = linearCoeffs(1) * inputR + linearCoeffs(2);
+
+% Quadratic candidate
+% quadraticFun = @(x, xdata) x(1) * xdata.^2 + x(2) * xdata + x(3);
+% % quadraticCoeffs = [-17.083025, -10.626567, 107.006690];
+% % quadraticCoeffs = [-5.709408, -25.587417, 110.219948];
+% quadraticCoeffs = [-5.889659, -24.488090, 109.879903];
+% Spo2 = quadraticFun(quadraticCoeffs, inputR);
+
+% Piecewise-linear candidate
+% piecewiseFun = @(b, x) (x <= b(3)).*(b(1) + b(2) * x) + ...
+%     (x > b(3)).*(b(1) + b(2) * b(3) + b(4) * (x - b(3)));
+% piecewiseCoeffs = [101.850707, -8.228011, 0.575722, -42.901326];
+% Spo2 = piecewiseFun(piecewiseCoeffs, inputR);
+
+% 仅用新睡眠数据拟合
+% piecewiseCoeffs = [100.454619496, -11.129875023, 0.551943406, -46.127479837];
+% Spo2 = (inputR <= piecewiseCoeffs(3)).*(piecewiseCoeffs(1) + piecewiseCoeffs(2) * inputR) + ...
+%     (inputR > piecewiseCoeffs(3)).*(piecewiseCoeffs(1) + piecewiseCoeffs(2) * piecewiseCoeffs(3) + piecewiseCoeffs(4) * (inputR - piecewiseCoeffs(3)));
+
+% Current calibration from R_SpO2_scatter_for_calibration.m
+linearCoeffs = [-32.500781164, 111.565386517];
+Spo2 = linearCoeffs(1) * inputR + linearCoeffs(2);
+
+Spo2 = max(min(Spo2, 100), 65);
+end

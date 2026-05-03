@@ -1,0 +1,35 @@
+Beat30 calibration candidates
+Recommended model: WeightedQuadratic
+
+Model: WeightedLinear
+Formula: SpO2 = -28.726416115 * R + 109.447439123
+Validation RMSE: 2.376418
+Validation Corr: 0.685241
+Validation Low RMSE: 3.472664
+Validation Low Bias: 1.553233
+
+Model: WeightedQuadratic
+Formula: SpO2 = -16.567031678 * R^2 + -6.051443714 * R + 102.101206870
+Validation RMSE: 2.220425
+Validation Corr: 0.720127
+Validation Low RMSE: 3.119053
+Validation Low Bias: 1.075036
+
+Model: WeightedPiecewiseLinear
+Formula: SpO2 = piecewise([101.460299907 -13.434031483 0.560613540 -33.216819185])
+Validation RMSE: 2.148290
+Validation Corr: 0.697777
+Validation Low RMSE: 3.420034
+Validation Low Bias: 1.073014
+
+Model: WeightedLowSpO2Segmented
+Formula: SpO2 = segmented([101.949621308 -14.423940287 0.544180892 -24.963103582 0.569476877 -33.662321942])
+Validation RMSE: 2.254503
+Validation Corr: 0.697413
+Validation Low RMSE: 3.383696
+Validation Low Bias: 0.812829
+
+================ calculate_spo2_beat30.m snippet ================
+quadraticCoeffs = [-16.567031677626, -6.051443714005, 102.101206870292];
+Spo2 = quadraticCoeffs(1) * inputR.^2 + quadraticCoeffs(2) * inputR + quadraticCoeffs(3);
+Spo2 = max(min(Spo2, 100), 65);

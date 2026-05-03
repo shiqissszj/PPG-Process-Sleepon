@@ -1,0 +1,36 @@
+Beat30 calibration candidates
+Recommended model: WeightedPiecewiseLinear
+
+Model: WeightedLinear
+Formula: SpO2 = -15.882844799 * R + 103.011703551
+Validation RMSE: 2.023891
+Validation Corr: 0.390676
+Validation Low RMSE: 4.824210
+Validation Low Bias: 4.496671
+
+Model: WeightedQuadratic
+Formula: SpO2 = -79.156761415 * R^2 + 77.253664137 * R + 75.944748062
+Validation RMSE: 1.962886
+Validation Corr: 0.457857
+Validation Low RMSE: 4.205529
+Validation Low Bias: 3.775709
+
+Model: WeightedPiecewiseLinear
+Formula: SpO2 = piecewise([100.189675242 -10.578951721 0.575188393 -20.702560880])
+Validation RMSE: 1.976496
+Validation Corr: 0.451547
+Validation Low RMSE: 4.594603
+Validation Low Bias: 4.289622
+
+Model: WeightedLowSpO2Segmented
+Formula: SpO2 = segmented([100.041397162 -10.506621297 0.555905656 0.015891933 0.594358675 -47.439907293])
+Validation RMSE: 1.921773
+Validation Corr: 0.492098
+Validation Low RMSE: 3.803911
+Validation Low Bias: 2.836688
+
+================ calculate_spo2_beat30.m snippet ================
+piecewiseCoeffs = [100.189675242280, -10.578951720575, 0.575188393182, -20.702560879960];
+Spo2 = (inputR <= piecewiseCoeffs(3)).*(piecewiseCoeffs(1) + piecewiseCoeffs(2) * inputR) + ...
+    (inputR > piecewiseCoeffs(3)).*(piecewiseCoeffs(1) + piecewiseCoeffs(2) * piecewiseCoeffs(3) + piecewiseCoeffs(4) * (inputR - piecewiseCoeffs(3)));
+Spo2 = max(min(Spo2, 100), 65);
