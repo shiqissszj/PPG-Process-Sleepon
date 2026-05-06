@@ -10,14 +10,15 @@
 %     1019,1020,1021,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010,2011,2012,2013,2014];
 
 % dataIDList = [1001,1002,1003, ...
-%     1004,1005,1006,1007,1008,1009,1010,1011,1012,1013,1014,1015,1016,1017,1018, ...
-%     1019,1020,1022,1023];
+%     1004,1005,1006,1007,1008,1009,1010,1011,1012,1013,1016,1017,1018, ...
+%     1019,1020,1022,1023,1024,1025,1026,1027,1028];
 
 % dataIDList = [182,183,184,187,188,193,194,196,197,198,200, ...
 %     201,203,204,206,207,208,209,210,211,212,213,214,215,216, ...
 %     217,218,219,220,221,222,223,224,225,226,227,228,230,231];
 
-dataIDList = 1025;
+dataIDList = 1013;
+
 R_SpO2_values = cell(length(dataIDList), 1);
 spo2RMSEList = nan(length(dataIDList), 1);
 prRMSEList = nan(length(dataIDList), 1);
@@ -169,19 +170,19 @@ for k = 1:length(dataIDList)
     title(append('Estimated SpO2 ', string(dataID)));
     % print(gcf, '-dpng', append('Estimated SpO2 ', string(dataID), '.png'), '-r600');
 
-    % figure(2); clf;
-    % plot(plotPREst); hold on; plot(alignedPRTrue); hold off;
-    % text(0, 45, append('RMSE: ', string(prRMSE))); 
-    % text(0, 42, append('PR auto offset (samples): ', string(pr_time_offset)));
-    % text(0, 39, append('PR total offset (samples): ', string(baseTimeOffset + pr_time_offset)));
-    % legend('Calculated PR', 'True PR', 'Location','northoutside','NumColumns', 2)
-    % ylim([40, 100])
-    % title(append('Estimated PR ', string(dataID)));
+    figure(2); clf;
+    plot(plotPREst); hold on; plot(alignedPRTrue); hold off;
+    text(0, 45, append('RMSE: ', string(prRMSE))); 
+    text(0, 42, append('PR auto offset (samples): ', string(pr_time_offset)));
+    text(0, 39, append('PR total offset (samples): ', string(baseTimeOffset + pr_time_offset)));
+    legend('Calculated PR', 'True PR', 'Location','northoutside','NumColumns', 2)
+    ylim([40, 100])
+    title(append('Estimated PR ', string(dataID)));
 
     % print(gcf, '-dpng', append('Estimated PR ', string(dataID), '.png'), '-r600');
 
     R_SpO2_values{k} = [alignedRValues(reliableMask), alignedSpO2True(reliableMask)];
-    fprintf('Data No. %d\n', dataID)
+    fprintf('\nData No. %d\n', dataID)
     fprintf('Overall SpO2 RMSE %.2f\n', overallRMSE)
     fprintf('Reliable SpO2 RMSE %.2f\n', reliableRMSE)
     fprintf('PR RMSE %.2f\n', prRMSE)
