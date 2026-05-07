@@ -14,6 +14,12 @@ confidenceThresholdR = single(0.45);
 confidenceThresholdPR = single(0.55);
 confidenceFloorPR = single(0.35);
 defaultConfidence = single(0.5);
+minUsableR = single(0.15);
+maxUsableR = single(1.80);
+lowConfidenceRJumpRatio = single(0.45);
+highConfidenceRJumpRatio = single(0.65);
+minLowConfidenceRJump = single(0.18);
+minHighConfidenceRJump = single(0.25);
 
 % initialize the static local buffer
 persistent fixBufferR;
@@ -72,10 +78,6 @@ else
     outputConfidenceR = single(0);
 end
 
-if outputConfidenceR > confidenceThresholdR
-    reliableCounterR = reliableCounterR + 1;
-end
-
 if confidenceG > confidenceThresholdPR
     reliableCounterG = reliableCounterG + 1;
 end
@@ -86,29 +88,39 @@ if ~prSeeded && inputPR > 0 && confidenceG > confidenceFloorPR
     prSeeded = true;
 end
 
-fixBufferIndexR = mod(reliableCounterR-1, fixBufferSize) + 1; % Circular buffer index
+fixBufferIndexR = mod(double(reliableCounterR), fixBufferSize) + 1; % Circular buffer index
 fixBufferIndexG = mod(reliableCounterG-1, fixBufferSize) + 1; % Circular buffer index
 
+if reliableCounterR >= fixBufferSize
+    fallbackR = mean(fixBufferR);
+elseif reliableCounterR > 0
+    fallbackR = mean(fixBufferR(1:double(reliableCounterR)));
+else
+    fallbackR = defaultR;
+end
+
+inputRUsable = isfinite(inputR) && inputR > minUsableR && inputR < maxUsableR;
+lowConfidenceRJumpLimit = max(minLowConfidenceRJump, lowConfidenceRJumpRatio * max(abs(fallbackR), defaultR));
+highConfidenceRJumpLimit = max(minHighConfidenceRJump, highConfidenceRJumpRatio * max(abs(fallbackR), defaultR));
+inputRUsableLowConfidence = inputRUsable && abs(inputR - fallbackR) <= lowConfidenceRJumpLimit;
+inputRUsableHighConfidence = inputRUsable && ...
+    (reliableCounterR == 0 || abs(inputR - fallbackR) <= highConfidenceRJumpLimit);
+rShouldUpdateHistory = false;
+
 if outputConfidenceR < confidenceThresholdR || confidenceR < confidenceThresholdR % fix the R and PR value
-    if reliableCounterR >= fixBufferSize
-        fixedR = mean(fixBufferR);
-        if isfinite(inputR) && inputR > 0
-            fixedR = fixedR*(1-confidenceR) + inputR * confidenceR;
-        end
-    elseif reliableCounterR > 1
-        fixedR = mean(fixBufferR(1:reliableCounterR-1));
-        if isfinite(inputR) && inputR > 0
-            fixedR = fixedR*(1-confidenceR) + inputR * confidenceR;
-        end
-    else
-        if isfinite(inputR) && inputR > 0
-            fixedR = defaultR * (1-confidenceR) + inputR * confidenceR;
-        else
-            fixedR = defaultR;
-        end
+    fixedR = fallbackR;
+    if inputRUsableLowConfidence
+        confidenceBlend = min(max(confidenceR, single(0)), single(1));
+        fixedR = fallbackR * (single(1) - confidenceBlend) + inputR * confidenceBlend;
     end
 else % keep the original value
-    fixedR = inputR;
+    if inputRUsableHighConfidence
+        fixedR = inputR;
+        rShouldUpdateHistory = true;
+    else
+        fixedR = fallbackR;
+        outputConfidenceR = min(outputConfidenceR, confidenceThresholdR);
+    end
 end
 
 if confidenceG < confidenceThresholdPR % fix the R and PR value
@@ -134,7 +146,8 @@ else % keep the original value
 end
 
 % update the buffer for fix
-if outputConfidenceR >= confidenceThresholdR %|| outputCounter <= fixBufferSize 
+if rShouldUpdateHistory %|| outputCounter <= fixBufferSize
+    reliableCounterR = reliableCounterR + 1;
     fixBufferR(fixBufferIndexR) = fixedR;
     % fixBufferR = [fixBufferR(2:fixBufferSize);fixedR];
 end
