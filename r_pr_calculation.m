@@ -87,6 +87,7 @@ else
         PR = single(-1);
     else
         PR = estimate_tail_tracked_pr(peakLocG1, ppgExpandedG, single(samplingRate), validHistoryCount, trackedPR);
+        PR = refine_pr_local_autocorr(ppgExpandedG, single(samplingRate), PR, trackedPR);
     end
     if length(peakLocG1) < 2 || PR < 35
         confidence = single(0);
