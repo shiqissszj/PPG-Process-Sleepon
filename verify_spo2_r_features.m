@@ -24,6 +24,29 @@ mergeLowSegmentGapSeconds = 60;
 zoomPaddingSeconds = 180;
 maxLowSegmentPlots = 6;
 
+% Experimental dual-track R settings:
+% - stable/display track: existing ppg_process output, smoothedR -> estSpO2.
+% - fast/event track: classic red/IR AC/DC R, short causal smoothing -> eventSpO2.
+fastRMin = 0.15;
+fastRMax = 1.80;
+fastRSmoothingSeconds = 5;
+fastRBaselineSeconds = 120;
+eventSpO2Threshold = 90;
+eventRDeltaThreshold = 0.12;
+eventRRatioThreshold = 1.25;
+eventConfirmSeconds = 5;
+eventMergeGapSeconds = 10;
+eventConfidenceThreshold = 0.55;
+eventMaxMovement = 20;
+eventRAgreementThreshold = 0.60;
+eventQualityThreshold = 0.55;
+eventSmoothedRDeltaThreshold = 0.02;
+eventSmoothedRRatioThreshold = 1.04;
+eventRedPIMin = 0.001;
+eventIrPIMin = 0.001;
+eventRedPIMax = 0.15;
+eventIrPIMax = 0.30;
+
 repoDir = fileparts(mfilename('fullpath'));
 if ~isempty(repoDir)
     cd(repoDir);
@@ -180,6 +203,68 @@ redPI = redPI(1:windowCounter);
 irPI = irPI(1:windowCounter);
 redIRDcRatio = redIRDcRatio(1:windowCounter);
 
+% Dual-track experimental low-O2 detector. This keeps the existing display
+% SpO2 untouched and adds a faster event channel based on red/IR only.
+fastRawR = classicRRobust;
+fastRForEvent = fastRawR;
+fastRValidMask = isfinite(fastRForEvent) & fastRForEvent >= fastRMin & fastRForEvent <= fastRMax & ...
+    bodyMoveMax <= eventMaxMovement;
+fastRForEvent(~fastRValidMask) = NaN;
+fastEventR = trailing_median(fastRForEvent, fastRSmoothingSeconds);
+fastEventSpO2 = calculate_spo2(fastEventR);
+fastRBaseline = trailing_median(fastEventR, fastRBaselineSeconds);
+fastRDelta = fastEventR - fastRBaseline;
+fastRRatio = fastEventR ./ fastRBaseline;
+fastRRatio(~isfinite(fastRRatio) | fastRBaseline <= 0) = NaN;
+lowO2FormulaCandidate = isfinite(fastEventSpO2) & fastEventSpO2 < eventSpO2Threshold & ...
+    confidenceR >= eventConfidenceThreshold & bodyMoveMax <= eventMaxMovement;
+lowO2FormulaEvent = confirmed_event_runs(lowO2FormulaCandidate, eventConfirmSeconds, eventMergeGapSeconds);
+lowO2Candidate = isfinite(fastRRatio) & isfinite(fastRDelta) & ...
+    fastRDelta >= eventRDeltaThreshold & fastRRatio >= eventRRatioThreshold & ...
+    confidenceR >= eventConfidenceThreshold & bodyMoveMax <= eventMaxMovement;
+lowO2Event = confirmed_event_runs(lowO2Candidate, eventConfirmSeconds, eventMergeGapSeconds);
+fastRAgreement = safe_ratio(min(classicRPeakToPeak, classicRRobust), ...
+    max(classicRPeakToPeak, classicRRobust));
+fastRDeltaScore = clamp01_vector(fastRDelta / eventRDeltaThreshold);
+fastRRatioScore = clamp01_vector((fastRRatio - 1) / (eventRRatioThreshold - 1));
+fastRAgreementScore = clamp01_vector(fastRAgreement / eventRAgreementThreshold);
+fastRPIScore = min(clamp01_vector(redPI / eventRedPIMin), clamp01_vector(irPI / eventIrPIMin));
+fastRPIScore(redPI > eventRedPIMax | irPI > eventIrPIMax) = 0;
+fastRConfidenceScore = clamp01_vector(confidenceR);
+fastRMovementScore = clamp01_vector(1 - bodyMoveMax / eventMaxMovement);
+lowO2QualityScore = 0.35 * fastRDeltaScore + 0.25 * fastRRatioScore + ...
+    0.15 * fastRAgreementScore + 0.10 * fastRPIScore + ...
+    0.10 * fastRConfidenceScore + 0.05 * fastRMovementScore;
+lowO2BaseQualityCandidate = lowO2Candidate & fastRAgreement >= eventRAgreementThreshold & ...
+    redPI >= eventRedPIMin & irPI >= eventIrPIMin & ...
+    redPI <= eventRedPIMax & irPI <= eventIrPIMax & ...
+    lowO2QualityScore >= eventQualityThreshold;
+lowO2BaseQualityEvent = confirmed_event_runs(lowO2BaseQualityCandidate, eventConfirmSeconds, eventMergeGapSeconds);
+smoothedRSupportBaseline = previous_trailing_median(smoothedR, fastRBaselineSeconds);
+smoothedRSupportDelta = smoothedR - smoothedRSupportBaseline;
+smoothedRSupportRatio = smoothedR ./ smoothedRSupportBaseline;
+smoothedRSupportRatio(~isfinite(smoothedRSupportRatio) | smoothedRSupportBaseline <= 0) = NaN;
+smoothedRSupportDeltaScore = clamp01_vector(smoothedRSupportDelta / eventSmoothedRDeltaThreshold);
+smoothedRSupportRatioScore = clamp01_vector((smoothedRSupportRatio - 1) / (eventSmoothedRRatioThreshold - 1));
+smoothedRSupportScore = 0.50 * smoothedRSupportDeltaScore + 0.50 * smoothedRSupportRatioScore;
+smoothedRSupportCandidate = isfinite(smoothedRSupportDelta) & isfinite(smoothedRSupportRatio) & ...
+    smoothedRSupportDelta >= eventSmoothedRDeltaThreshold & ...
+    smoothedRSupportRatio >= eventSmoothedRRatioThreshold;
+lowO2QualityCandidate = lowO2BaseQualityCandidate & smoothedRSupportCandidate;
+lowO2QualityEvent = confirmed_event_runs(lowO2QualityCandidate, eventConfirmSeconds, eventMergeGapSeconds);
+rRiseSQI = 0.75 * lowO2QualityScore + 0.25 * smoothedRSupportScore;
+rRiseSQICandidate = lowO2QualityCandidate;
+rRiseSQIEvent = lowO2QualityEvent;
+
+formulaEventStats = score_event_detection(trueSpO2 <= lowSpo2Threshold, lowO2FormulaCandidate, ...
+    minLowSegmentSeconds, mergeLowSegmentGapSeconds, eventConfirmSeconds, eventMergeGapSeconds, "formula");
+rRiseEventStats = score_event_detection(trueSpO2 <= lowSpo2Threshold, lowO2Candidate, ...
+    minLowSegmentSeconds, mergeLowSegmentGapSeconds, eventConfirmSeconds, eventMergeGapSeconds, "r_rise");
+baseQualityEventStats = score_event_detection(trueSpO2 <= lowSpo2Threshold, lowO2BaseQualityCandidate, ...
+    minLowSegmentSeconds, mergeLowSegmentGapSeconds, eventConfirmSeconds, eventMergeGapSeconds, "r_rise_base_sqi");
+rRiseSQIEventStats = score_event_detection(trueSpO2 <= lowSpo2Threshold, rRiseSQICandidate, ...
+    minLowSegmentSeconds, mergeLowSegmentGapSeconds, eventConfirmSeconds, eventMergeGapSeconds, "r_rise_sqi_smoothedR");
+
 [spo2AutoOffset, spo2AutoCorr] = estimate_time_offset_with_corr(estSpO2, trueSpO2, 120, stepSize);
 [prAutoOffset, prAutoCorr] = estimate_time_offset_with_corr(estPR, truePR, 120, stepSize);
 
@@ -200,30 +285,78 @@ fprintf("No-offset PR RMSE: %.3f, corr: %.3f\n", ...
     rmse_debug(estPR, truePR), corr_debug(estPR, truePR));
 fprintf("Auto PR offset: %d samples, best corr: %.3f, auto RMSE: %.3f\n\n", ...
     prAutoOffset, prAutoCorr, rmse_debug(autoAlignedPREst, autoAlignedPRTrue));
+fprintf("Fast event track: red/IR robust R, %d-s trailing median, event threshold %.1f\n", ...
+    fastRSmoothingSeconds, eventSpO2Threshold);
+fprintf("R-rise event rule: fastRDelta >= %.3f and fastRRatio >= %.3f for %d s\n", ...
+    eventRDeltaThreshold, eventRRatioThreshold, eventConfirmSeconds);
+fprintf("Quality event rule: score >= %.2f, agreement >= %.2f, merged gaps <= %d s\n", ...
+    eventQualityThreshold, eventRAgreementThreshold, eventMergeGapSeconds);
+fprintf("Smoothed-R support rule: delta >= %.3f and ratio >= %.3f\n", ...
+    eventSmoothedRDeltaThreshold, eventSmoothedRRatioThreshold);
+fprintf("No-offset fast event SpO2 RMSE: %.3f, corr: %.3f\n", ...
+    rmse_debug(fastEventSpO2, trueSpO2), corr_debug(fastEventSpO2, trueSpO2));
+fprintf("Formula candidate/event windows: %d / %d\n", ...
+    sum(lowO2FormulaCandidate), sum(lowO2FormulaEvent));
+fprintf("R-rise candidate/event windows: %d / %d\n", sum(lowO2Candidate), sum(lowO2Event));
+fprintf("Base SQI candidate/event windows: %d / %d\n", ...
+    sum(lowO2BaseQualityCandidate), sum(lowO2BaseQualityEvent));
+fprintf("Smoothed-R support candidate windows: %d\n", sum(smoothedRSupportCandidate));
+fprintf("Cross-track SQI candidate/event windows: %d / %d\n\n", ...
+    sum(lowO2QualityCandidate), sum(lowO2QualityEvent));
+print_event_score(formulaEventStats);
+print_event_score(rRiseEventStats);
+print_event_score(baseQualityEventStats);
+print_event_score(rRiseSQIEventStats);
+fprintf("\n");
 
 print_group_stats("all", true(size(trueSpO2)), trueSpO2, estSpO2, truePR, estPR, ...
-    smoothedR, rawR, classicRPeakToPeak, classicRRobust, confidenceR);
+    smoothedR, rawR, classicRPeakToPeak, classicRRobust, fastEventR, fastRDelta, ...
+    fastRRatio, fastEventSpO2, lowO2FormulaCandidate, lowO2FormulaEvent, ...
+    lowO2Candidate, lowO2Event, lowO2QualityCandidate, lowO2QualityEvent, ...
+    lowO2QualityScore, confidenceR);
 print_group_stats("true SpO2 <= 90", trueSpO2 <= lowSpo2Threshold, trueSpO2, estSpO2, truePR, estPR, ...
-    smoothedR, rawR, classicRPeakToPeak, classicRRobust, confidenceR);
+    smoothedR, rawR, classicRPeakToPeak, classicRRobust, fastEventR, fastRDelta, ...
+    fastRRatio, fastEventSpO2, lowO2FormulaCandidate, lowO2FormulaEvent, ...
+    lowO2Candidate, lowO2Event, lowO2QualityCandidate, lowO2QualityEvent, ...
+    lowO2QualityScore, confidenceR);
 print_group_stats("true SpO2 <= 85", trueSpO2 <= severeSpo2Threshold, trueSpO2, estSpO2, truePR, estPR, ...
-    smoothedR, rawR, classicRPeakToPeak, classicRRobust, confidenceR);
+    smoothedR, rawR, classicRPeakToPeak, classicRRobust, fastEventR, fastRDelta, ...
+    fastRRatio, fastEventSpO2, lowO2FormulaCandidate, lowO2FormulaEvent, ...
+    lowO2Candidate, lowO2Event, lowO2QualityCandidate, lowO2QualityEvent, ...
+    lowO2QualityScore, confidenceR);
 print_group_stats("true SpO2 > 92", trueSpO2 > 92, trueSpO2, estSpO2, truePR, estPR, ...
-    smoothedR, rawR, classicRPeakToPeak, classicRRobust, confidenceR);
+    smoothedR, rawR, classicRPeakToPeak, classicRRobust, fastEventR, fastRDelta, ...
+    fastRRatio, fastEventSpO2, lowO2FormulaCandidate, lowO2FormulaEvent, ...
+    lowO2Candidate, lowO2Event, lowO2QualityCandidate, lowO2QualityEvent, ...
+    lowO2QualityScore, confidenceR);
 
 T = table(windowIndex, windowEndSample, windowTime, trueSpO2, estSpO2, ...
     truePR, estPR, go2sleepSpO2Win, go2sleepHRWin, rawR, fixedR, smoothedR, ...
-    classicRPeakToPeak, classicRRobust, redPI, irPI, redIRDcRatio, ...
+    classicRPeakToPeak, classicRRobust, fastRawR, fastEventR, fastRBaseline, ...
+    fastRDelta, fastRRatio, fastEventSpO2, lowO2FormulaCandidate, lowO2FormulaEvent, ...
+    lowO2Candidate, lowO2Event, fastRAgreement, lowO2QualityScore, ...
+    lowO2BaseQualityCandidate, lowO2BaseQualityEvent, smoothedRSupportBaseline, ...
+    smoothedRSupportDelta, smoothedRSupportRatio, smoothedRSupportScore, ...
+    smoothedRSupportCandidate, lowO2QualityCandidate, lowO2QualityEvent, ...
+    rRiseSQI, rRiseSQICandidate, rRiseSQIEvent, ...
+    redPI, irPI, redIRDcRatio, ...
     confidenceR, bodyMoveMean, bodyMoveMax);
 
 csvPath = fullfile(outputDir, "no31_spo2_r_verification_windows.csv");
 writetable(T, csvPath);
 fprintf("Wrote window CSV: %s\n", csvPath);
 
+eventScoreTable = struct2table([formulaEventStats; rRiseEventStats; baseQualityEventStats; rRiseSQIEventStats]);
+eventScoreCsvPath = fullfile(outputDir, "no31_spo2_r_event_scores.csv");
+writetable(eventScoreTable, eventScoreCsvPath);
+fprintf("Wrote event score CSV: %s\n", eventScoreCsvPath);
+
 plot_overview(outputDir, windowTime, trueSpO2, estSpO2, go2sleepSpO2Win, ...
     truePR, estPR, go2sleepHRWin, smoothedR, rawR, classicRRobust, ...
+    fastEventR, fastEventSpO2, lowO2FormulaEvent, lowO2Event, lowO2QualityEvent, ...
     confidenceR, bodyMoveMax);
 plot_scatter(outputDir, trueSpO2, estSpO2, smoothedR, rawR, ...
-    classicRPeakToPeak, classicRRobust, confidenceR);
+    classicRPeakToPeak, classicRRobust, fastEventR, fastEventSpO2, confidenceR);
 
 segments = find_low_segments(trueSpO2 <= lowSpo2Threshold, ...
     minLowSegmentSeconds, mergeLowSegmentGapSeconds);
@@ -248,7 +381,8 @@ else
         plot_low_segment(outputDir, plotIdx, segStart, segEnd, zoomPaddingSeconds, ...
             windowTime, trueSpO2, estSpO2, go2sleepSpO2Win, truePR, estPR, ...
             go2sleepHRWin, smoothedR, rawR, classicRPeakToPeak, classicRRobust, ...
-            confidenceR, bodyMoveMax);
+            fastEventR, fastEventSpO2, lowO2FormulaEvent, lowO2Candidate, ...
+            lowO2Event, lowO2QualityEvent, lowO2QualityScore, confidenceR, bodyMoveMax);
     end
 end
 
@@ -414,6 +548,12 @@ else
 end
 end
 
+function value = safe_ratio(numerator, denominator)
+value = numerator ./ denominator;
+invalidMask = ~isfinite(numerator) | ~isfinite(denominator) | abs(denominator) < 1e-12;
+value(invalidMask) = NaN;
+end
+
 function [time_offset, bestCorr] = estimate_time_offset_with_corr(estimatedSeries, trueSeries, maxLagWin, stepSize)
 if nargin < 3 || isempty(maxLagWin)
     maxLagWin = 120;
@@ -531,7 +671,10 @@ end
 end
 
 function print_group_stats(label, mask, trueSpO2, estSpO2, truePR, estPR, ...
-    smoothedR, rawR, classicRPeakToPeak, classicRRobust, confidenceR)
+    smoothedR, rawR, classicRPeakToPeak, classicRRobust, fastEventR, fastRDelta, ...
+    fastRRatio, fastEventSpO2, lowO2FormulaCandidate, lowO2FormulaEvent, ...
+    lowO2Candidate, lowO2Event, lowO2QualityCandidate, lowO2QualityEvent, ...
+    lowO2QualityScore, confidenceR)
 
 mask = mask(:) & isfinite(trueSpO2(:)) & isfinite(estSpO2(:));
 fprintf("---------------- %s ----------------\n", label);
@@ -562,6 +705,22 @@ fprintf("classic p2p R mean/std/corr-with-trueSpO2: %.4f / %.4f / %.3f\n", ...
 fprintf("classic robust R mean/std/corr-with-trueSpO2: %.4f / %.4f / %.3f\n", ...
     mean(classicRRobust(mask), "omitnan"), std(classicRRobust(mask), 0, "omitnan"), ...
     corr_debug(classicRRobust(mask), trueSpO2(mask)));
+fprintf("fast event R mean/std/corr-with-trueSpO2: %.4f / %.4f / %.3f\n", ...
+    mean(fastEventR(mask), "omitnan"), std(fastEventR(mask), 0, "omitnan"), ...
+    corr_debug(fastEventR(mask), trueSpO2(mask)));
+fprintf("fast R delta/ratio mean: %.4f / %.4f\n", ...
+    mean(fastRDelta(mask), "omitnan"), mean(fastRRatio(mask), "omitnan"));
+fprintf("fast event SpO2 mean/RMSE/corr: %.2f / %.3f / %.3f\n", ...
+    mean(fastEventSpO2(mask), "omitnan"), ...
+    rmse_debug(fastEventSpO2(mask), trueSpO2(mask)), ...
+    corr_debug(fastEventSpO2(mask), trueSpO2(mask)));
+fprintf("formula candidate/event ratio: %.3f / %.3f\n", ...
+    sum(lowO2FormulaCandidate(mask)) / sum(mask), sum(lowO2FormulaEvent(mask)) / sum(mask));
+fprintf("R-rise candidate/event ratio: %.3f / %.3f\n", ...
+    sum(lowO2Candidate(mask)) / sum(mask), sum(lowO2Event(mask)) / sum(mask));
+fprintf("R-rise SQI candidate/event ratio: %.3f / %.3f, score mean: %.3f\n", ...
+    sum(lowO2QualityCandidate(mask)) / sum(mask), sum(lowO2QualityEvent(mask)) / sum(mask), ...
+    mean(lowO2QualityScore(mask), "omitnan"));
 fprintf("confidence mean/min/max: %.3f / %.3f / %.3f\n\n", ...
     mean(confidenceR(mask), "omitnan"), min(confidenceR(mask), [], "omitnan"), ...
     max(confidenceR(mask), [], "omitnan"));
@@ -595,19 +754,34 @@ segments = segments(lengths >= minLength, :);
 end
 
 function plot_overview(outputDir, windowTime, trueSpO2, estSpO2, go2sleepSpO2, ...
-    truePR, estPR, go2sleepHR, smoothedR, rawR, classicRRobust, confidenceR, bodyMoveMax)
+    truePR, estPR, go2sleepHR, smoothedR, rawR, classicRRobust, fastEventR, ...
+    fastEventSpO2, lowO2FormulaEvent, lowO2Event, lowO2QualityEvent, confidenceR, bodyMoveMax)
 
 fig = figure("Color", "w", "Position", [100, 100, 1300, 900], "Visible", "off");
 subplot(4, 1, 1);
 plot(windowTime, trueSpO2, "LineWidth", 1.1);
 hold on;
 plot(windowTime, estSpO2, "LineWidth", 1.0);
+plot(windowTime, fastEventSpO2, "--", "LineWidth", 0.9);
 plot(windowTime, go2sleepSpO2, "LineWidth", 0.8);
+eventIdx = find(lowO2Event);
+if ~isempty(eventIdx)
+    scatter(windowTime(eventIdx), fastEventSpO2(eventIdx), 10, "filled");
+end
+formulaEventIdx = find(lowO2FormulaEvent);
+if ~isempty(formulaEventIdx)
+    scatter(windowTime(formulaEventIdx), fastEventSpO2(formulaEventIdx), 8, "x");
+end
+qualityEventIdx = find(lowO2QualityEvent);
+if ~isempty(qualityEventIdx)
+    scatter(windowTime(qualityEventIdx), fastEventSpO2(qualityEventIdx), 12, "square", "filled");
+end
 hold off;
 grid on;
 ylim([65, 101]);
 ylabel("SpO2");
-legend("Checkme SpO2", "Estimated SpO2", "Go2sleep SpO2", "Location", "best");
+legend("Checkme SpO2", "Display SpO2", "Fast event SpO2", "Go2sleep SpO2", ...
+    "R-rise event", "Formula event", "R-rise SQI event", "Location", "best");
 title("No31 SpO2/R Verification Overview");
 
 subplot(4, 1, 2);
@@ -626,10 +800,12 @@ plot(windowTime, smoothedR, "LineWidth", 1.0);
 hold on;
 plot(windowTime, rawR, "LineWidth", 0.7);
 plot(windowTime, classicRRobust, "LineWidth", 0.8);
+plot(windowTime, fastEventR, "--", "LineWidth", 1.0);
 hold off;
 grid on;
 ylabel("R features");
-legend("Smoothed R used by SpO2", "Raw R", "Classic robust red/IR R", "Location", "best");
+legend("Smoothed R used by SpO2", "Raw R", "Classic robust red/IR R", ...
+    "Fast event R", "Location", "best");
 
 subplot(4, 1, 4);
 yyaxis left;
@@ -646,7 +822,7 @@ save_figure(fig, fullfile(outputDir, "no31_spo2_r_overview.png"));
 end
 
 function plot_scatter(outputDir, trueSpO2, estSpO2, smoothedR, rawR, ...
-    classicRPeakToPeak, classicRRobust, confidenceR)
+    classicRPeakToPeak, classicRRobust, fastEventR, fastEventSpO2, confidenceR)
 
 fig = figure("Color", "w", "Position", [100, 100, 1200, 800], "Visible", "off");
 
@@ -684,6 +860,29 @@ colorbar;
 
 save_figure(fig, fullfile(outputDir, "no31_r_vs_spo2_scatter.png"));
 
+fig = figure("Color", "w", "Position", [100, 100, 1200, 520], "Visible", "off");
+subplot(1, 2, 1);
+scatter(fastEventR, trueSpO2, 8, confidenceR, "filled");
+grid on;
+xlabel("Fast event R");
+ylabel("Checkme SpO2");
+title("Fast event R vs reference SpO2");
+colorbar;
+
+subplot(1, 2, 2);
+scatter(trueSpO2, fastEventSpO2, 8, confidenceR, "filled");
+grid on;
+xlabel("Checkme SpO2");
+ylabel("Fast event SpO2");
+title("Fast event SpO2 vs Checkme SpO2");
+xlim([65, 101]);
+ylim([65, 101]);
+hold on;
+plot([65, 101], [65, 101], "k--", "LineWidth", 1);
+hold off;
+colorbar;
+save_figure(fig, fullfile(outputDir, "no31_fast_event_channel_scatter.png"));
+
 fig = figure("Color", "w", "Position", [100, 100, 700, 700], "Visible", "off");
 scatter(trueSpO2, estSpO2, 8, confidenceR, "filled");
 grid on;
@@ -701,7 +900,9 @@ end
 
 function plot_low_segment(outputDir, plotIdx, segStart, segEnd, paddingSeconds, ...
     windowTime, trueSpO2, estSpO2, go2sleepSpO2, truePR, estPR, go2sleepHR, ...
-    smoothedR, rawR, classicRPeakToPeak, classicRRobust, confidenceR, bodyMoveMax)
+    smoothedR, rawR, classicRPeakToPeak, classicRRobust, fastEventR, fastEventSpO2, ...
+    lowO2FormulaEvent, lowO2Candidate, lowO2Event, lowO2QualityEvent, ...
+    lowO2QualityScore, confidenceR, bodyMoveMax)
 
 idxStart = max(1, segStart - paddingSeconds);
 idxEnd = min(numel(trueSpO2), segEnd + paddingSeconds);
@@ -712,12 +913,26 @@ subplot(4, 1, 1);
 plot(windowTime(idx), trueSpO2(idx), "LineWidth", 1.2);
 hold on;
 plot(windowTime(idx), estSpO2(idx), "LineWidth", 1.0);
+plot(windowTime(idx), fastEventSpO2(idx), "--", "LineWidth", 0.9);
 plot(windowTime(idx), go2sleepSpO2(idx), "LineWidth", 0.8);
+eventIdx = idx(lowO2Event(idx));
+if ~isempty(eventIdx)
+    scatter(windowTime(eventIdx), fastEventSpO2(eventIdx), 12, "filled");
+end
+formulaEventIdx = idx(lowO2FormulaEvent(idx));
+if ~isempty(formulaEventIdx)
+    scatter(windowTime(formulaEventIdx), fastEventSpO2(formulaEventIdx), 9, "x");
+end
+qualityEventIdx = idx(lowO2QualityEvent(idx));
+if ~isempty(qualityEventIdx)
+    scatter(windowTime(qualityEventIdx), fastEventSpO2(qualityEventIdx), 13, "square", "filled");
+end
 hold off;
 grid on;
 ylim([65, 101]);
 ylabel("SpO2");
-legend("Checkme SpO2", "Estimated SpO2", "Go2sleep SpO2", "Location", "best");
+legend("Checkme SpO2", "Display SpO2", "Fast event SpO2", "Go2sleep SpO2", ...
+    "R-rise event", "Formula event", "R-rise SQI event", "Location", "best");
 title(sprintf("No31 low-SpO2 segment %d", plotIdx));
 
 subplot(4, 1, 2);
@@ -737,16 +952,25 @@ hold on;
 plot(windowTime(idx), rawR(idx), "LineWidth", 0.7);
 plot(windowTime(idx), classicRPeakToPeak(idx), "LineWidth", 0.8);
 plot(windowTime(idx), classicRRobust(idx), "LineWidth", 0.8);
+plot(windowTime(idx), fastEventR(idx), "--", "LineWidth", 1.0);
 hold off;
 grid on;
 ylabel("R features");
-legend("Smoothed R", "Raw R", "Classic p2p R", "Classic robust R", "Location", "best");
+legend("Smoothed R", "Raw R", "Classic p2p R", "Classic robust R", ...
+    "Fast event R", "Location", "best");
 
 subplot(4, 1, 4);
 yyaxis left;
 plot(windowTime(idx), confidenceR(idx), "LineWidth", 1.0);
+hold on;
+plot(windowTime(idx), lowO2Candidate(idx), "LineWidth", 0.8);
+plot(windowTime(idx), lowO2Event(idx), "LineWidth", 1.0);
+plot(windowTime(idx), lowO2FormulaEvent(idx), "LineWidth", 0.8);
+plot(windowTime(idx), lowO2QualityEvent(idx), "LineWidth", 1.0);
+plot(windowTime(idx), lowO2QualityScore(idx), "LineWidth", 0.8);
+hold off;
 ylim([0, 1]);
-ylabel("Confidence");
+ylabel("Confidence / event");
 yyaxis right;
 plot(windowTime(idx), bodyMoveMax(idx), "LineWidth", 0.8);
 ylabel("Movement");
@@ -754,6 +978,151 @@ grid on;
 xlabel("Time");
 
 save_figure(fig, fullfile(outputDir, sprintf("no31_low_spo2_segment_%02d.png", plotIdx)));
+end
+
+function outputValues = trailing_median(inputValues, windowLength)
+inputValues = inputValues(:);
+outputValues = NaN(size(inputValues));
+windowLength = max(1, round(windowLength));
+
+for idx = 1:numel(inputValues)
+    startIdx = max(1, idx - windowLength + 1);
+    windowValues = inputValues(startIdx:idx);
+    windowValues = windowValues(isfinite(windowValues));
+    if ~isempty(windowValues)
+        outputValues(idx) = median(windowValues);
+    end
+end
+end
+
+function outputValues = previous_trailing_median(inputValues, windowLength)
+inputValues = inputValues(:);
+outputValues = NaN(size(inputValues));
+windowLength = max(1, round(windowLength));
+
+for idx = 1:numel(inputValues)
+    startIdx = max(1, idx - windowLength);
+    endIdx = idx - 1;
+    if endIdx < startIdx
+        continue
+    end
+    windowValues = inputValues(startIdx:endIdx);
+    windowValues = windowValues(isfinite(windowValues));
+    if ~isempty(windowValues)
+        outputValues(idx) = median(windowValues);
+    end
+end
+end
+
+function outputMask = consecutive_true(inputMask, minCount)
+inputMask = logical(inputMask(:));
+outputMask = false(size(inputMask));
+minCount = max(1, round(minCount));
+runCount = 0;
+
+for idx = 1:numel(inputMask)
+    if inputMask(idx)
+        runCount = runCount + 1;
+    else
+        runCount = 0;
+    end
+
+    if runCount >= minCount
+        outputMask(idx) = true;
+    end
+end
+end
+
+function outputValues = clamp01_vector(inputValues)
+outputValues = inputValues;
+outputValues(~isfinite(outputValues)) = 0;
+outputValues = min(max(outputValues, 0), 1);
+end
+
+function outputMask = confirmed_event_runs(inputMask, minCount, mergeGap)
+segments = find_low_segments(inputMask, minCount, mergeGap);
+outputMask = false(size(inputMask(:)));
+for idx = 1:size(segments, 1)
+    outputMask(segments(idx, 1):segments(idx, 2)) = true;
+end
+end
+
+function stats = score_event_detection(referenceMask, predictedMask, ...
+    trueMinLength, trueMergeGap, predMinLength, predMergeGap, detectorName)
+
+trueSegments = find_low_segments(referenceMask, trueMinLength, trueMergeGap);
+predSegments = find_low_segments(predictedMask, predMinLength, predMergeGap);
+
+trueEventCount = size(trueSegments, 1);
+predEventCount = size(predSegments, 1);
+matchedTrue = false(trueEventCount, 1);
+truePositivePredCount = 0;
+overlapScores = NaN(predEventCount, 1);
+
+for predIdx = 1:predEventCount
+    predStart = predSegments(predIdx, 1);
+    predEnd = predSegments(predIdx, 2);
+    predLength = predEnd - predStart + 1;
+
+    bestTrueIdx = 0;
+    bestOverlapScore = 0;
+    for trueIdx = 1:trueEventCount
+        trueStart = trueSegments(trueIdx, 1);
+        trueEnd = trueSegments(trueIdx, 2);
+        trueLength = trueEnd - trueStart + 1;
+        overlapLength = max(0, min(predEnd, trueEnd) - max(predStart, trueStart) + 1);
+        if overlapLength <= 0
+            continue
+        end
+
+        predOverlapRatio = overlapLength / max(predLength, 1);
+        trueOverlapRatio = overlapLength / max(trueLength, 1);
+        overlapScore = 0.5 * predOverlapRatio + 0.5 * trueOverlapRatio;
+        if overlapScore > bestOverlapScore
+            bestOverlapScore = overlapScore;
+            bestTrueIdx = trueIdx;
+        end
+    end
+
+    if bestTrueIdx > 0
+        truePositivePredCount = truePositivePredCount + 1;
+        matchedTrue(bestTrueIdx) = true;
+        overlapScores(predIdx) = bestOverlapScore;
+    end
+end
+
+detectedTrueEventCount = sum(matchedTrue);
+falsePositiveEventCount = predEventCount - truePositivePredCount;
+precision = safe_divide(truePositivePredCount, predEventCount);
+recall = safe_divide(detectedTrueEventCount, trueEventCount);
+f1Score = safe_divide(2 * precision * recall, precision + recall);
+
+validOverlapScores = overlapScores(isfinite(overlapScores));
+if isempty(validOverlapScores)
+    meanOverlapScore = NaN;
+else
+    meanOverlapScore = mean(validOverlapScores);
+end
+
+stats = struct( ...
+    "detector", detectorName, ...
+    "true_event_count", trueEventCount, ...
+    "pred_event_count", predEventCount, ...
+    "true_positive_pred_count", truePositivePredCount, ...
+    "false_positive_event_count", falsePositiveEventCount, ...
+    "detected_true_event_count", detectedTrueEventCount, ...
+    "precision", precision, ...
+    "recall", recall, ...
+    "f1_score", f1Score, ...
+    "mean_overlap_score", meanOverlapScore);
+end
+
+function print_event_score(stats)
+fprintf("%s event score: true=%d, pred=%d, TPpred=%d, FP=%d, detectedTrue=%d, precision=%.3f, recall=%.3f, F1=%.3f, overlap=%.3f\n", ...
+    char(stats.detector), stats.true_event_count, stats.pred_event_count, ...
+    stats.true_positive_pred_count, stats.false_positive_event_count, ...
+    stats.detected_true_event_count, stats.precision, stats.recall, ...
+    stats.f1_score, stats.mean_overlap_score);
 end
 
 function save_figure(fig, pathName)
