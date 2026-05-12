@@ -171,6 +171,8 @@ if PR > 0
     if maxCorrValueR < 0.25 || maxCorrValueIR < 0.25 || bodyMove > 15
         outputConfidenceG = outputConfidenceG * single(0.4);
     end
+else
+    outputConfidenceG = single(0);
 end
 
 outputConfidenceR = confidence;

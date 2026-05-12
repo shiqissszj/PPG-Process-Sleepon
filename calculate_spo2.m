@@ -38,10 +38,14 @@ coder.inline('never')
 % Spo2 = piecewiseFun(piecewiseCoeffs, inputR);
 
 % Current calibration from R_SpO2_scatter_for_calibration.m
-segmentedCoeffs = [111.681029336, -32.427245497, 0.840888038, -27.951537941, 1.028421640, -38.543077665];
-Spo2 = (inputR <= segmentedCoeffs(3)).*(segmentedCoeffs(1) + segmentedCoeffs(2) * inputR) + ...
-    (inputR > segmentedCoeffs(3) & inputR <= segmentedCoeffs(5)).*(segmentedCoeffs(1) + segmentedCoeffs(2) * segmentedCoeffs(3) + segmentedCoeffs(4) * (inputR - segmentedCoeffs(3))) + ...
-    (inputR > segmentedCoeffs(5)).*(segmentedCoeffs(1) + segmentedCoeffs(2) * segmentedCoeffs(3) + segmentedCoeffs(4) * (segmentedCoeffs(5) - segmentedCoeffs(3)) + segmentedCoeffs(6) * (inputR - segmentedCoeffs(5)));
+% segmentedCoeffs = [111.681029336, -32.427245497, 0.840888038, -27.951537941, 1.028421640, -38.543077665];
+% Spo2 = (inputR <= segmentedCoeffs(3)).*(segmentedCoeffs(1) + segmentedCoeffs(2) * inputR) + ...
+%     (inputR > segmentedCoeffs(3) & inputR <= segmentedCoeffs(5)).*(segmentedCoeffs(1) + segmentedCoeffs(2) * segmentedCoeffs(3) + segmentedCoeffs(4) * (inputR - segmentedCoeffs(3))) + ...
+%     (inputR > segmentedCoeffs(5)).*(segmentedCoeffs(1) + segmentedCoeffs(2) * segmentedCoeffs(3) + segmentedCoeffs(4) * (segmentedCoeffs(5) - segmentedCoeffs(3)) + segmentedCoeffs(6) * (inputR - segmentedCoeffs(5)));
+
+% Current calibration from R_SpO2_scatter_for_calibration.m
+quadraticCoeffs = [-1.755350847, -29.573163045, 110.586417515];
+Spo2 = quadraticCoeffs(1) * inputR.^2 + quadraticCoeffs(2) * inputR + quadraticCoeffs(3);
 
 Spo2 = max(min(Spo2, 100), 65);
 end

@@ -13,7 +13,7 @@
 %     1004,1005,1006,1007,1008,1009,1010,1011,1012,1013,1014,1016,1017,1018, ...
 %     1019,1020,1022,1023,1024,1025,1026,1027,1028,1029,1030];
 
-dataIDList = 1030;
+dataIDList = 1024;
 
 R_SpO2_values = cell(length(dataIDList), 1);
 spo2RMSEList = nan(length(dataIDList), 1);

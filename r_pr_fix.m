@@ -16,6 +16,8 @@ confidenceFloorPR = single(0.35);
 defaultConfidence = single(0.5);
 minUsableR = single(0.15);
 maxUsableR = single(1.80);
+minUsablePR = single(35);
+maxUsablePR = single(220);
 lowConfidenceRJumpRatio = single(0.45);
 highConfidenceRJumpRatio = single(0.65);
 minLowConfidenceRJump = single(0.18);
@@ -78,18 +80,16 @@ else
     outputConfidenceR = single(0);
 end
 
-if confidenceG > confidenceThresholdPR
-    reliableCounterG = reliableCounterG + 1;
-end
+inputPRUsable = isfinite(inputPR) && inputPR >= minUsablePR && inputPR <= maxUsablePR;
 
-if ~prSeeded && inputPR > 0 && confidenceG > confidenceFloorPR
+if ~prSeeded && inputPRUsable && confidenceG > confidenceFloorPR
     fixBufferPR(:) = inputPR;
     reliableCounterG = max(reliableCounterG, uint32(1));
     prSeeded = true;
 end
 
 fixBufferIndexR = mod(double(reliableCounterR), fixBufferSize) + 1; % Circular buffer index
-fixBufferIndexG = mod(reliableCounterG-1, fixBufferSize) + 1; % Circular buffer index
+fixBufferIndexG = mod(double(reliableCounterG), fixBufferSize) + 1; % Circular buffer index
 
 if reliableCounterR >= fixBufferSize
     fallbackR = mean(fixBufferR);
@@ -99,6 +99,14 @@ else
     fallbackR = defaultR;
 end
 
+if reliableCounterG >= fixBufferSize
+    fallbackPR = mean(fixBufferPR);
+elseif reliableCounterG > 0
+    fallbackPR = mean(fixBufferPR(1:double(reliableCounterG)));
+else
+    fallbackPR = defaultPR;
+end
+
 inputRUsable = isfinite(inputR) && inputR > minUsableR && inputR < maxUsableR;
 lowConfidenceRJumpLimit = max(minLowConfidenceRJump, lowConfidenceRJumpRatio * max(abs(fallbackR), defaultR));
 highConfidenceRJumpLimit = max(minHighConfidenceRJump, highConfidenceRJumpRatio * max(abs(fallbackR), defaultR));
@@ -106,6 +114,7 @@ inputRUsableLowConfidence = inputRUsable && abs(inputR - fallbackR) <= lowConfid
 inputRUsableHighConfidence = inputRUsable && ...
     (reliableCounterR == 0 || abs(inputR - fallbackR) <= highConfidenceRJumpLimit);
 rShouldUpdateHistory = false;
+prShouldUpdateHistory = false;
 
 if outputConfidenceR < confidenceThresholdR || confidenceR < confidenceThresholdR % fix the R and PR value
     fixedR = fallbackR;
@@ -124,25 +133,22 @@ else % keep the original value
 end
 
 if confidenceG < confidenceThresholdPR % fix the R and PR value
-    if reliableCounterG > fixBufferSize
-        fallbackPR = mean(fixBufferPR);
-    elseif reliableCounterG > 1
-        fallbackPR = mean(fixBufferPR(1:reliableCounterG-1));
-    else
-        fallbackPR = defaultPR;
-    end
-
-    if inputPR > 0 && confidenceG > confidenceFloorPR
+    if inputPRUsable && confidenceG > confidenceFloorPR
         prBlend = (confidenceG - confidenceFloorPR) / (confidenceThresholdPR - confidenceFloorPR);
         prBlend = min(max(prBlend, single(0)), single(1));
         fixedPR = fallbackPR * (single(1) - prBlend) + inputPR * prBlend;
-    elseif inputPR > 0 && reliableCounterG == 0
+    elseif inputPRUsable && reliableCounterG == 0
         fixedPR = inputPR;
     else
         fixedPR = fallbackPR;
     end
 else % keep the original value
-    fixedPR = inputPR;
+    if inputPRUsable
+        fixedPR = inputPR;
+        prShouldUpdateHistory = true;
+    else
+        fixedPR = fallbackPR;
+    end
 end
 
 % update the buffer for fix
@@ -151,7 +157,8 @@ if rShouldUpdateHistory %|| outputCounter <= fixBufferSize
     fixBufferR(fixBufferIndexR) = fixedR;
     % fixBufferR = [fixBufferR(2:fixBufferSize);fixedR];
 end
-if confidenceG >= confidenceThresholdPR %|| outputCounter <= fixBufferSize 
+if prShouldUpdateHistory %|| outputCounter <= fixBufferSize
+    reliableCounterG = reliableCounterG + 1;
     fixBufferPR(fixBufferIndexG) = fixedPR;
     % fixBufferPR = [fixBufferPR(2:fixBufferSize);fixedPR];
 end
