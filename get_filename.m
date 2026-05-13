@@ -329,6 +329,8 @@ switch Data_id
         filename = '../../Data/PPG_Collection/on_fingers/No30-0507-王彪-指尖绑带-睡眠/output/Data_ppg_No30_20260507_wb_3_sleep_merged.txt';
     case 1031
         filename = '../../Data/PPG_Collection/on_fingers/No31-0511-周鹏-指尖绑带-睡眠/output/Data_ppg_No31_20260511_zp_732_sleep_merged.txt';
+    case 1032
+        filename = '../../Data/PPG_Collection/on_fingers/No32-0512-孙哲俊-指尖绑带-睡眠/output/Data_ppg_No32_20260512_szj_820_sleep_merged.txt';
 
 
 
@@ -382,7 +384,8 @@ switch Data_id
         filename = '../../Data/PPG_Collection/test/0507/output/Data_ppg_No7_20260507_wb_3_normal_merged.txt';
   case 3007
         filename = '../../Data/PPG_Collection/test/0511/output/Data_ppg_No19_20260511_szj_820_normal_merged.txt';
-
+  case 3008
+        filename = '../../Data/PPG_Collection/test/0512(1)/output/Data_ppg_No8_20260512_szj_820_normal_merged.txt';
 
 
 end
