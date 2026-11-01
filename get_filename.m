@@ -331,7 +331,10 @@ switch Data_id
         filename = '../../Data/PPG_Collection/on_fingers/No31-0511-周鹏-指尖绑带-睡眠/output/Data_ppg_No31_20260511_zp_732_sleep_merged.txt';
     case 1032
         filename = '../../Data/PPG_Collection/on_fingers/No32-0512-孙哲俊-指尖绑带-睡眠/output/Data_ppg_No32_20260512_szj_820_sleep_merged.txt';
-
+    case 1033
+        filename = '../../Data/PPG_Collection/on_fingers/No33-0513-周鹏-指尖绑带-睡眠/output/Data_ppg_No33_20260513_zp_732_sleep_merged.txt';
+    case 1034
+        filename = '../../Data/PPG_Collection/on_fingers/No34-0513-王彪-指尖绑带-睡眠/output/Data_ppg_No34_20260513_wb_3_sleep_merged.txt';
 
 
 
@@ -368,6 +371,10 @@ switch Data_id
         filename = '../../Data/PPG_Collection/Low_SpO2/No15-0506-周鹏-低氧/output/Data_ppg_No15_20260506_zp_732_low_spo2_merged.txt';
    case 2016
         filename = '../../Data/PPG_Collection/Low_SpO2/No16-0506-孙哲俊-低氧/output/Data_ppg_No16_20260506_szj_820_low_O2_merged.txt';
+   case 2017
+        filename = '../../Data/PPG_Collection/Low_SpO2/No17-0515-周鹏-低氧/output2/Data_ppg_No17_20260515_zp_732_LowO2_merged.txt';
+   case 2018
+        filename = '../../Data/PPG_Collection/Low_SpO2/No18-0515-孙哲俊-低氧/output/Data_ppg_No18_20260515_szj_820_low_O2_merged.txt';
 
 
   case 3001
