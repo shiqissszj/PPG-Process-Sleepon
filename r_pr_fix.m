@@ -26,6 +26,7 @@ minHighConfidenceRJump = single(0.25);
 % initialize the static local buffer
 persistent fixBufferR;
 persistent fixBufferPR;
+persistent recentReliablePR;
 persistent confidenceBuffer;
 persistent reliableCounterR;
 persistent reliableCounterG;
@@ -38,6 +39,10 @@ if outputCounter == 1
     reliableCounterR = uint32(0);
     reliableCounterG = uint32(0);
     prSeeded = false;
+    recentReliablePR = defaultPR;
+end
+if isempty(recentReliablePR)
+    recentReliablePR = defaultPR;
 end
 if isempty(fixBufferR)
     fixBufferR = zeros(fixBufferSize,1,'single');
@@ -84,6 +89,7 @@ inputPRUsable = isfinite(inputPR) && inputPR >= minUsablePR && inputPR <= maxUsa
 
 if ~prSeeded && inputPRUsable && confidenceG > confidenceFloorPR
     fixBufferPR(:) = inputPR;
+    recentReliablePR = inputPR;
     reliableCounterG = max(reliableCounterG, uint32(1));
     prSeeded = true;
 end
@@ -106,6 +112,9 @@ elseif reliableCounterG > 0
 else
     fallbackPR = defaultPR;
 end
+
+% Blend the long reliable history with a faster estimate for low-quality windows.
+fallbackPR = single(0.5) * (fallbackPR + recentReliablePR);
 
 inputRUsable = isfinite(inputR) && inputR > minUsableR && inputR < maxUsableR;
 lowConfidenceRJumpLimit = max(minLowConfidenceRJump, lowConfidenceRJumpRatio * max(abs(fallbackR), defaultR));
@@ -160,6 +169,7 @@ end
 if prShouldUpdateHistory %|| outputCounter <= fixBufferSize
     reliableCounterG = reliableCounterG + 1;
     fixBufferPR(fixBufferIndexG) = fixedPR;
+    recentReliablePR = recentReliablePR + single(0.25) * (fixedPR - recentReliablePR);
     % fixBufferPR = [fixBufferPR(2:fixBufferSize);fixedPR];
 end
 outputR = fixedR;

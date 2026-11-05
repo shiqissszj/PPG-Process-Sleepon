@@ -4,7 +4,8 @@ coder.inline('never')
 maxPeakNum = 50;
 
 % Detect candidate peaks, filter them by minimun peak height
-candidateLocs = zeros(maxPeakNum, 1, 'uint8');
+% The expanded green window can contain 300 samples.
+candidateLocs = zeros(maxPeakNum, 1, 'uint16');
 countCandidatePeak = 0;
 for idx = 2:length(inputSig)-1
     if inputSig(idx) > inputSig(idx-1) && inputSig(idx) >= inputSig(idx+1) && inputSig(idx) > minPeakHeight
@@ -41,18 +42,20 @@ for i = 1:length(sortedPeaks)
         if minPeakProminence > 0
             % Find left and right bases
             leftBase = loc;
+            leftMin = inputSig(loc);
             while leftBase > 1 && inputSig(leftBase - 1) <= peak
                 leftBase = leftBase - 1;
+                leftMin = min(leftMin, inputSig(leftBase));
             end
 
             rightBase = loc;
+            rightMin = inputSig(loc);
             while rightBase < length(inputSig) && inputSig(rightBase + 1) <= peak
                 rightBase = rightBase + 1;
+                rightMin = min(rightMin, inputSig(rightBase));
             end
 
             % Determine prominence
-            leftMin = min(inputSig(leftBase:loc));
-            rightMin = min(inputSig(loc:rightBase));
             minHeight = max(leftMin, rightMin);
             prominence = peak - minHeight;
 

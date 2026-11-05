@@ -6,6 +6,7 @@ function [results, averages, details] = SpO2_PR_catalog_main(recordIDs, options)
 % [results, averages] = SpO2_PR_catalog_main([2001,2017]); % 数字仅代表旧 Data_id
 % [results, averages] = SpO2_PR_catalog_main("all_enabled", struct('ShowPlots',false));
 % MAT 心率参考切换：struct('MatPRReference',"EDF")，默认 "ECG"。
+% PR 算法对照：PRVariant 可设为 "current"、"pr_a"、"pr_b"、"pr_c" 或 "pr_causal"。
 % 返回逐记录结果、平均结果；可选第三输出保留每秒比较波形。
 % 不保存图像/CSV/MAT，不修改目录表。每条记录只画一张图（PR、SpO2两面板）。
 % 新入口统一规则：参考PR不截断到100；不前向填补缺失；每段跳过前30个输出。
@@ -13,23 +14,26 @@ function [results, averages, details] = SpO2_PR_catalog_main(recordIDs, options)
 % 仍必须有有效的体动与TXT裁剪参数，MAT仍须列入当前manifest。
 
 %% 常用配置（均可直接在这里修改）
-DEFAULT_RECORD_IDS = "psg_11";
+DEFAULT_RECORD_IDS = ["psg_9", "psg_10", "psg_11", "legacy_1022"];
+
+
 CODE_DIR = fileparts(mfilename('fullpath'));
 cfg = struct;
 cfg.CatalogPath = fullfile(CODE_DIR, 'data_catalog.xlsx');
 cfg.MatPRReference = "ECG";  % "ECG" 或 "EDF"，不自动替换参考来源
 cfg.ShowPlots = true;
-cfg.FigureVisible = 'on';
+cfg.FigureVisible = 'off';
 cfg.RespectEnabled = true;
 cfg.AutoOffset = true;
-cfg.MaxOffsetSeconds = 300;
-cfg.MinOffsetPairs = 60;     % 至少60个有效秒；可调至300用于长时记录
-cfg.MinOffsetCorrelation = 0.20;
+cfg.MaxOffsetSeconds = 120;  % 与SpO2_PR_main一致，输出序列最多搜索±120秒
+cfg.MinOffsetPairs = 5;      % 与estimate_time_offset一致
+cfg.MinOffsetCorrelation = -1; % 旧规则只取最高相关性，不设0.20门槛
 cfg.MaxPairDistanceSeconds = 0.35;
 cfg.IgnoreFirstOutputsPerRun = 30;
 cfg.HRValidRange = [30,220];
 cfg.SpO2ValidRange = [50,100];
 cfg.SampleRate = 50;        % ppg_process固定50Hz，不可任意修改
+cfg.PRVariant = "current"; % current, pr_a, pr_b, pr_c, pr_causal
 
 if nargin < 1 || isempty(recordIDs), recordIDs = DEFAULT_RECORD_IDS; end
 if nargin >= 2
@@ -47,9 +51,27 @@ validateattributes(cfg.MaxOffsetSeconds,{'numeric'},{'scalar','integer','nonnega
 validateattributes(cfg.MinOffsetPairs,{'numeric'},{'scalar','integer','>=',2});
 validateattributes(cfg.IgnoreFirstOutputsPerRun,{'numeric'},{'scalar','integer','nonnegative'});
 addpath(CODE_DIR,'-begin');
+cfg.PRVariant = string(cfg.PRVariant);
+assert(ismember(cfg.PRVariant,["current","pr_a","pr_b","pr_c","pr_causal"]), '未知PRVariant。');
+variantNames = ["pr_a","pr_b","pr_c","pr_causal"];
+for variantIndex = 1:numel(variantNames)
+    variantPath = fullfile(CODE_DIR,'variants',char(variantNames(variantIndex)));
+    if contains([path pathsep],[variantPath pathsep])
+        rmpath(variantPath);
+    end
+end
+algorithmFolder = CODE_DIR;
+if cfg.PRVariant ~= "current"
+    variantPath = fullfile(CODE_DIR,'variants',char(cfg.PRVariant));
+    addpath(variantPath,'-begin');
+    restoreVariantPath = onCleanup(@()rmpath(variantPath));
+    algorithmFolder = variantPath;
+end
+clear ppg_process r_pr_calculation pr_causal_postprocess
 previousFolder = pwd;
 restoreFolder = onCleanup(@()cd(previousFolder));
-cd(CODE_DIR); % 防止其他当前目录中的同名算法函数覆盖本目录版本
+cd(algorithmFolder); % MATLAB 当前目录优先；切入所选目录以确保调用对应算法版本
+clear ppg_process r_pr_calculation pr_causal_postprocess
 catalog = readtable(cfg.CatalogPath,'Sheet','Records','TextType','string','VariableNamingRule','preserve');
 required = {'record_id','input_type','absolute_path','enabled', ...
     'legacy_offset_samples','legacy_drop_start_samples','legacy_drop_end_samples','source_index_path'};
@@ -81,6 +103,7 @@ for k = 1:numel(recordIDs)
         assert(~isempty(index),'目录中不存在record_id：%s',recordIDs(k));
         row = catalog(index,:);
         result.InputType = string(row.input_type);
+        result.Dataset = string(row.dataset);
         if cfg.RespectEnabled && ~enabled(index)
             result.Status = "skipped_disabled";
             result.Message = "目录enabled=FALSE；未运行。";
@@ -135,10 +158,10 @@ end
 results = struct2table(rows);
 averages = summarizeResults(results);
 fprintf('\n逐记录结果（偏移单位：秒）\n');
-disp(results(:,{'RecordID','PRReference','PRRMSE','SpO2RMSE','PRAutoOffsetSeconds','SpO2AutoOffsetSeconds','PRPairs','SpO2Pairs','Status'}));
+disp(results(:,{'RecordID','Dataset','InputType','PRReference','PRRMSE','SpO2RMSE','PRAutoOffsetSeconds','SpO2AutoOffsetSeconds','PRPairs','SpO2Pairs','Status'}));
 fprintf('平均RMSE（逐记录等权）与总体RMSE（汇总有效配对点）\n');
 disp(averages);
-fprintf('ALL_SELECTED为跨来源描述性汇总；同一参考来源的分组结果更适合直接比较。\n');
+fprintf('ALL_SELECTED为跨数据集描述性汇总；按Dataset和Reference分组的结果适合比较时间轴版本。\n');
 if nargout == 0
     assignin('base','catalogResults',results);
     assignin('base','catalogAverages',averages);
@@ -150,7 +173,7 @@ value = ismember(lower(strtrim(string(values))),["true","1","yes"]);
 end
 
 function result = emptyResult()
-result = struct('RecordID',"",'InputType',"",'PRReference',"",'SpO2Reference',"", ...
+result = struct('RecordID',"",'Dataset',"",'InputType',"",'PRReference',"",'SpO2Reference',"", ...
     'BaseIndexOffsetSamples',NaN,'PRRMSEBefore',NaN,'PRRMSE',NaN,'SpO2RMSEBefore',NaN,'SpO2RMSE',NaN, ...
     'PRPairs',0,'SpO2Pairs',0,'PRSSE',0,'SpO2SSE',0,'PRAutoOffsetSeconds',NaN, ...
     'SpO2AutoOffsetSeconds',NaN,'PRTotalShiftSeconds',NaN,'SpO2TotalShiftSeconds',NaN, ...
@@ -302,22 +325,26 @@ if hi<=lo, return; end
 % 与EDF比较脚本一致：固定共同参考时间窗，右边界不计入。
 use=refTime>=lo & refTime<hi;
 t=refTime(use); ref=reference(use);
+% 旧版PR和参考向量按完整记录预分配；3秒窗、1秒步长使长度约为秒级参考轴长度-3。
+% 这里按完整时间轴估计N，避免质量过滤后有效设备点变少而错误缩窄旧版搜索范围。
+seriesLength=max(0,numel(refTime)-3);
+maxLag=min(cfg.MaxOffsetSeconds,floor(seriesLength/2));
 raw=pairValues(t,deviceTime,device,0,cfg.MaxPairDistanceSeconds);
 [c.rawRMSE,~,~]=metrics(raw,ref);
 c.status="offset_search_disabled";
 if cfg.AutoOffset
     best=-Inf; bestLag=0;
-    for lag=-cfg.MaxOffsetSeconds:cfg.MaxOffsetSeconds
+    for lag=-maxLag:maxLag
         estimate=pairValues(t,deviceTime,device,lag,cfg.MaxPairDistanceSeconds);
         keep=isfinite(estimate) & isfinite(ref);
         if sum(keep)<cfg.MinOffsetPairs || std(estimate(keep))==0 || std(ref(keep))==0, continue; end
         corrMatrix=corrcoef(estimate(keep),ref(keep)); value=corrMatrix(1,2);
-        if isfinite(value) && (value>best || (value==best && abs(lag)<abs(bestLag)))
+        if isfinite(value) && value>best
             best=value; bestLag=lag;
         end
     end
     if isfinite(best), c.searchCorrelation=best; end
-    if best>=cfg.MinOffsetCorrelation
+    if isfinite(best) && best>=cfg.MinOffsetCorrelation
         c.offset=bestLag; c.status="offset_estimated";
     else
         c.status="offset_rejected_low_correlation_or_pair_count";
@@ -344,18 +371,32 @@ if n>0, rmse=sqrt(sse/n); end
 end
 
 function averages = summarizeResults(results)
-rows=struct('Group',{},'Signal',{},'Reference',{},'RecordCount',{},'PairCount',{},'MeanRMSE',{},'PooledRMSE',{});
+rows=struct('Group',{},'Dataset',{},'Signal',{},'Reference',{},'RecordCount',{},'PairCount',{},'MeanRMSE',{},'PooledRMSE',{});
 for signal=["PR","SpO2"]
     rmse=results.(signal+"RMSE"); pairs=results.(signal+"Pairs"); sse=results.(signal+"SSE");
-    refs=results.(signal+"Reference"); valid=isfinite(rmse) & pairs>0;
-    groups=["ALL_SELECTED";unique(refs(valid),'stable')];
+    refs=results.(signal+"Reference"); datasets=results.Dataset;
+    valid=isfinite(rmse) & pairs>0;
+    allGroups=struct('Group',"ALL_SELECTED",'Dataset',"ALL_SELECTED", ...
+        'Reference',"ALL_SELECTED",'Mask',valid);
+    groups=allGroups;
+    datasetNames=unique(datasets(valid),'stable');
+    for datasetIndex=1:numel(datasetNames)
+        datasetMask=valid & datasets==datasetNames(datasetIndex);
+        referenceNames=unique(refs(datasetMask),'stable');
+        for referenceIndex=1:numel(referenceNames)
+            referenceMask=datasetMask & refs==referenceNames(referenceIndex);
+            groups(end+1)=struct('Group',datasetNames(datasetIndex), ...
+                'Dataset',datasetNames(datasetIndex),'Reference',referenceNames(referenceIndex), ...
+                'Mask',referenceMask); %#ok<AGROW>
+        end
+    end
     for g=1:numel(groups)
-        use=valid;
-        if g>1, use=use & refs==groups(g); end
+        use=groups(g).Mask;
         n=sum(pairs(use)); pooled=NaN; average=NaN;
         if n>0, pooled=sqrt(sum(sse(use))/n); average=mean(rmse(use)); end
-        rows(end+1)=struct('Group',groups(g),'Signal',signal,'Reference',groups(g), ...
-            'RecordCount',sum(use),'PairCount',n,'MeanRMSE',average,'PooledRMSE',pooled); %#ok<AGROW>
+        rows(end+1)=struct('Group',groups(g).Group,'Dataset',groups(g).Dataset, ...
+            'Signal',signal,'Reference',groups(g).Reference,'RecordCount',sum(use), ...
+            'PairCount',n,'MeanRMSE',average,'PooledRMSE',pooled); %#ok<AGROW>
     end
 end
 averages=struct2table(rows);

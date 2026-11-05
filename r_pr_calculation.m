@@ -86,7 +86,7 @@ else
         confidence = single(0);
         PR = single(-1);
     else
-        PR = estimate_tail_tracked_pr(peakLocG1, ppgExpandedG, single(samplingRate), validHistoryCount, trackedPR);
+        PR = estimate_tail_tracked_pr(peakLocG1, single(samplingRate), validHistoryCount, trackedPR);
         PR = refine_pr_local_autocorr(ppgExpandedG, single(samplingRate), PR, trackedPR);
     end
     if length(peakLocG1) < 2 || PR < 35
@@ -278,38 +278,28 @@ end
 outputValue = intervalSum / single(intervalCount);
 end
 
-function outputPR = estimate_tail_tracked_pr(peakLocs, inputSignal, samplingRate, validHistoryCount, trackedPR)
+function outputPR = estimate_tail_tracked_pr(peakLocs, samplingRate, validHistoryCount, trackedPR)
 
 intervalCount = length(peakLocs) - 1;
-intervalBuffer = zeros(49, 1, 'single');
+maxIntervals = 4;
+intervalBuffer = zeros(maxIntervals, 1, 'single');
 tailIntervalCount = 0;
 currentWindowStart = single(validHistoryCount) + single(1);
 
-for idx = 1:intervalCount
-    if peakLocs(idx + 1) >= currentWindowStart
+% Peaks are sorted. Use the latest intervals, including history only when
+% no interval ends in the current window.
+useHistory = peakLocs(end) < currentWindowStart;
+for idx = max(1, intervalCount - maxIntervals + 1):intervalCount
+    if useHistory || peakLocs(idx + 1) >= currentWindowStart
         tailIntervalCount = tailIntervalCount + 1;
         intervalBuffer(tailIntervalCount) = peakLocs(idx + 1) - peakLocs(idx);
     end
 end
 
-if tailIntervalCount == 0
-    for idx = 1:intervalCount
-        intervalBuffer(idx) = peakLocs(idx + 1) - peakLocs(idx);
-    end
-    tailIntervalCount = intervalCount;
-end
-
-if tailIntervalCount > 4
-    for idx = 1:4
-        intervalBuffer(idx) = intervalBuffer(tailIntervalCount - 4 + idx);
-    end
-    tailIntervalCount = 4;
-end
-
 sortedIntervals = sort_values_for_median(intervalBuffer(1:tailIntervalCount));
 centerInterval = median_of_sorted_values(sortedIntervals, tailIntervalCount);
 
-robustBuffer = zeros(49, 1, 'single');
+robustBuffer = zeros(maxIntervals, 1, 'single');
 robustCount = 0;
 for idx = 1:tailIntervalCount
     if intervalBuffer(idx) >= centerInterval * single(0.75) && ...
@@ -328,19 +318,15 @@ end
 
 if trackedPR > 0
     expectedInterval = single(60) * samplingRate / trackedPR;
-    trackedBuffer = zeros(49, 1, 'single');
     trackedCount = 0;
     for idx = 1:robustCount
         if robustBuffer(idx) >= expectedInterval * single(0.8) && ...
                 robustBuffer(idx) <= expectedInterval * single(1.2)
             trackedCount = trackedCount + 1;
-            trackedBuffer(trackedCount) = robustBuffer(idx);
+            robustBuffer(trackedCount) = robustBuffer(idx);
         end
     end
     if trackedCount > 0
-        for idx = 1:trackedCount
-            robustBuffer(idx) = trackedBuffer(idx);
-        end
         robustCount = trackedCount;
     end
 end

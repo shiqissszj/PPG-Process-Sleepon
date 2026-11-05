@@ -3,3 +3,8 @@
 *.mat
 .DS_Store
 codegen/build/
+*.csv
+~$*
+*.asv
+analysis
+*.xlsx
