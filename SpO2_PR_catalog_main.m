@@ -5,6 +5,9 @@ function [results, averages, details] = SpO2_PR_catalog_main(recordIDs, options)
 % [results, averages] = SpO2_PR_catalog_main(["legacy_2017","psg_11"]);
 % [results, averages] = SpO2_PR_catalog_main([2001,2017]); % 数字仅代表旧 Data_id
 % [results, averages] = SpO2_PR_catalog_main("all_enabled", struct('ShowPlots',false));
+% 默认遍历全部目录行；禁用行标记为 skipped_disabled。
+% 强制处理禁用行：SpO2_PR_catalog_main("all_records", struct('RespectEnabled',false,'ShowPlots',false))。
+% 保存结果：writetable(results,'catalog_results.csv'); writetable(averages,'catalog_averages.csv');
 % MAT 心率参考切换：struct('MatPRReference',"EDF")，默认 "ECG"。
 % PR 算法对照：PRVariant 可设为 "current"、"pr_a"、"pr_b"、"pr_c" 或 "pr_causal"。
 % 返回逐记录结果、平均结果；可选第三输出保留每秒比较波形。
@@ -14,14 +17,16 @@ function [results, averages, details] = SpO2_PR_catalog_main(recordIDs, options)
 % 仍必须有有效的体动与TXT裁剪参数，MAT仍须列入当前manifest。
 
 %% 常用配置（均可直接在这里修改）
-DEFAULT_RECORD_IDS = ["psg_9", "psg_10", "psg_11", "legacy_1022"];
+% DEFAULT_RECORD_IDS = "all_records";
+DEFAULT_RECORD_IDS = "psg_55";
+% DEFAULT_RECORD_IDS = ["psg_midpoint50_9", "psg_midpoint50_16", "legacy_204"];
 
 
 CODE_DIR = fileparts(mfilename('fullpath'));
 cfg = struct;
 cfg.CatalogPath = fullfile(CODE_DIR, 'data_catalog.xlsx');
 cfg.MatPRReference = "ECG";  % "ECG" 或 "EDF"，不自动替换参考来源
-cfg.ShowPlots = true;
+cfg.ShowPlots = false;
 cfg.FigureVisible = 'off';
 cfg.RespectEnabled = true;
 cfg.AutoOffset = true;
@@ -88,12 +93,13 @@ end
 recordIDs = recordIDs(:);
 if isscalar(recordIDs) && recordIDs == "all_enabled"
     recordIDs = catalog.record_id(enabled);
+elseif isscalar(recordIDs) && recordIDs == "all_records"
+    recordIDs = catalog.record_id;
 end
 recordIDs = unique(recordIDs,'stable');
 assert(~isempty(recordIDs), '没有选中任何记录。');
 rows = repmat(emptyResult(),numel(recordIDs),1);
 details = cell(numel(recordIDs),1);
-seenPaths = strings(0,1);
 fprintf('目录：%s\n本次 %d 条记录，MAT PR参考：%s\n',cfg.CatalogPath,numel(recordIDs),cfg.MatPRReference);
 for k = 1:numel(recordIDs)
     result = emptyResult(); result.RecordID = recordIDs(k);
@@ -107,13 +113,9 @@ for k = 1:numel(recordIDs)
         if cfg.RespectEnabled && ~enabled(index)
             result.Status = "skipped_disabled";
             result.Message = "目录enabled=FALSE；未运行。";
-        elseif any(seenPaths == string(row.absolute_path))
-            result.Status = "skipped_duplicate_path";
-            result.Message = "本批次已经处理过同一路径；未重复计入平均值。";
         else
             assert(isfile(row.absolute_path),'数据文件不存在：%s',row.absolute_path);
             input = loadRecord(row,cfg);
-            seenPaths(end+1,1) = string(row.absolute_path); %#ok<AGROW>
             output = replayPPG(input,cfg);
             pr = compareSeries(output.time,output.pr,input.refTime,input.refPR,cfg.HRValidRange,cfg);
             spo2 = compareSeries(output.time,output.spo2,input.refTime,input.refSpO2,cfg.SpO2ValidRange,cfg);

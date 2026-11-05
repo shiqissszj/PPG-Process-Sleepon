@@ -19,11 +19,16 @@ persistent beginCalculation;
 persistent bufferR;
 persistent bufferIR;
 persistent bufferG;
+% Six seconds of continuously filtered green light for PR estimation.
+persistent prGreenBuffer;
 
 if isempty(bufferR) || isempty(bufferIR) || isempty(bufferG)
     bufferR = zeros(stepSize, 1, 'single');
     bufferIR = zeros(stepSize, 1, 'single');
     bufferG = zeros(stepSize, 1, 'single');
+end
+if isempty(prGreenBuffer)
+    prGreenBuffer = zeros(6 * double(samplingRate), 1, 'single');
 end
 
 % initialize the static local buffer
@@ -53,7 +58,12 @@ if inputCounter == 1
     windowG = single(zeros(windowSize,1));
     outputCounter = uint32(0);
     beginCalculation = false;
+    prGreenBuffer(:) = 0;
 end
+
+prSample = pr_green_continuous_filter(inputSampleG, inputCounter);
+prBufferLength = numel(prGreenBuffer);
+prGreenBuffer(mod(double(inputCounter)-1, prBufferLength)+1) = prSample;
 
 % save the input sample in the buffer
 bufferIdx = mod(inputCounter-1, stepSize) + 1;
@@ -86,7 +96,11 @@ if outputFlag
     windowG = [windowG(stepSize+1:end); bufferG];
 
     % calculate the raw R and PR value as well as the confidence
-    [R, PR, PI, confidenceR, confidenceG] = r_pr_calculation(windowR, windowIR, windowG, samplingRate, outputCounter, bodyMove);
+    prCount = min(double(inputCounter), prBufferLength);
+    prStart = mod(double(inputCounter)-prCount, prBufferLength)+1;
+    prIndices = mod((prStart-1)+(0:prCount-1), prBufferLength)+1;
+    continuousGreen = prGreenBuffer(prIndices);
+    [R, PR, PI, confidenceR, confidenceG] = r_pr_calculation(windowR, windowIR, windowG, samplingRate, outputCounter, bodyMove, continuousGreen);
 
     % fix the R and PR value based on the confidence
     [fixedR, fixedPR, confidenceR] = r_pr_fix(R,PR,confidenceR,confidenceG,outputCounter);

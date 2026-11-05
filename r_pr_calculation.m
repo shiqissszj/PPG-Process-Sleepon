@@ -1,4 +1,4 @@
-function [outputR, outputPR, outputSQI, outputConfidenceR, outputConfidenceG] = r_pr_calculation(windowR, windowIR, windowG, samplingRate, outputCounter, bodyMove)
+function [outputR, outputPR, outputSQI, outputConfidenceR, outputConfidenceG] = r_pr_calculation(windowR, windowIR, windowG, samplingRate, outputCounter, bodyMove, continuousGreen)
 
 coder.inline('never')
 
@@ -50,11 +50,15 @@ end
 [dcR, dcIR, ~, acGRaw, acR, acIR, acG, ppgFilteredR, ppgFilteredIR, ppgFilteredG, ~, outlierNumG, delay1, delay2] = ...
     preprocess_ppg_window_shared(windowR, windowIR, windowG, samplingRate);
 
-% Preserve the legacy PR behavior: peak detection uses an expanded green
-% signal built from a rolling history plus the current aligned AC green.
+% Direct callers that do not provide a continuous stream retain the legacy
+% fallback. The main ppg_process supplies continuously filtered samples.
 validHistoryCount = double(previousPRGValidCount);
 expandedCount = validHistoryCount + windowSampleCount;
 
+if nargin >= 7
+    ppgExpandedG = continuousGreen(:);
+    validHistoryCount = max(0, numel(ppgExpandedG) - windowSampleCount);
+else
 if validHistoryCount > 0
     historyStartIdx = windowSampleCount - validHistoryCount + 1;
     for idx = 1:validHistoryCount
@@ -65,7 +69,6 @@ for idx = 1:windowSampleCount
     expandedGreenInputBuffer(validHistoryCount + idx) = acGRaw(idx);
 end
 [ppgExpandedG, ~] = ac_filter(expandedGreenInputBuffer(1:expandedCount));
-ppgNormalizedG = ac_normalize(ppgExpandedG);
 for idx = 1:(windowSampleCount - stepSize)
     previousPRG(idx) = previousPRG(idx + stepSize);
 end
@@ -73,6 +76,12 @@ for idx = 1:stepSize
     previousPRG(windowSampleCount - stepSize + idx) = acGRaw(idx);
 end
 previousPRGValidCount = min(previousPRGValidCount + uint32(stepSize), uint32(windowSampleCount));
+end
+if max(ppgExpandedG) > min(ppgExpandedG)
+    ppgNormalizedG = ac_normalize(ppgExpandedG);
+else
+    ppgNormalizedG = zeros(size(ppgExpandedG), 'like', ppgExpandedG);
+end
 
 % PR calculation
 [~, peakLocG0] = find_peaks(ppgNormalizedG, single(samplingRate)*pr1, single(-inf), single(0.025));
