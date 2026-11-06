@@ -17,8 +17,8 @@ function [results, averages, details] = SpO2_PR_catalog_main(recordIDs, options)
 % 仍必须有有效的体动与TXT裁剪参数，MAT仍须列入当前manifest。
 
 %% 常用配置（均可直接在这里修改）
-% DEFAULT_RECORD_IDS = "all_records";
-DEFAULT_RECORD_IDS = "psg_55";
+% Click Run to replay the records currently enabled in data_catalog.xlsx.
+DEFAULT_RECORD_IDS = "all_enabled";
 % DEFAULT_RECORD_IDS = ["psg_midpoint50_9", "psg_midpoint50_16", "legacy_204"];
 
 

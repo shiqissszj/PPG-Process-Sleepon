@@ -1,4 +1,4 @@
-function [outputR, outputPR, outputSQI, outputConfidenceR, outputConfidenceG] = r_pr_calculation(windowR, windowIR, windowG, samplingRate, outputCounter, bodyMove, continuousGreen)
+function [outputR, outputPR, outputSQI, outputConfidenceR, outputConfidenceG] = r_pr_calculation(windowR, windowIR, windowG, samplingRate, outputCounter, bodyMove, rawGreenHistory)
 
 coder.inline('never')
 
@@ -50,13 +50,17 @@ end
 [dcR, dcIR, ~, acGRaw, acR, acIR, acG, ppgFilteredR, ppgFilteredIR, ppgFilteredG, ~, outlierNumG, delay1, delay2] = ...
     preprocess_ppg_window_shared(windowR, windowIR, windowG, samplingRate);
 
-% Direct callers that do not provide a continuous stream retain the legacy
-% fallback. The main ppg_process supplies continuously filtered samples.
+% Process a contiguous raw window as a whole so the history does not contain
+% pieces with independently estimated baselines. Direct callers without the
+% seventh argument retain the original stitched-window fallback.
 validHistoryCount = double(previousPRGValidCount);
 expandedCount = validHistoryCount + windowSampleCount;
 
 if nargin >= 7
-    ppgExpandedG = continuousGreen(:);
+    [cleanGreenHistory, spikeCount] = despike_isolated_samples(rawGreenHistory(:));
+    [~, rawGreenAC] = dc_ac_spliter(cleanGreenHistory, samplingRate);
+    [ppgExpandedG, clippedCount] = ac_filter(rawGreenAC);
+    prOutlierCount = min(numel(rawGreenHistory), spikeCount + clippedCount);
     validHistoryCount = max(0, numel(ppgExpandedG) - windowSampleCount);
 else
 if validHistoryCount > 0
@@ -68,7 +72,7 @@ end
 for idx = 1:windowSampleCount
     expandedGreenInputBuffer(validHistoryCount + idx) = acGRaw(idx);
 end
-[ppgExpandedG, ~] = ac_filter(expandedGreenInputBuffer(1:expandedCount));
+[ppgExpandedG, prOutlierCount] = ac_filter(expandedGreenInputBuffer(1:expandedCount));
 for idx = 1:(windowSampleCount - stepSize)
     previousPRG(idx) = previousPRG(idx + stepSize);
 end
@@ -125,8 +129,8 @@ outputSQI = [xcorrR_G,xcorrIR_G,xcorrR_IR,0,0,0];
 usedSampleRatio = (windowSize - outlierNumG - single(max(abs(delay1), abs(delay2)))) / windowSize;
 usedSampleRatio = clamp01(usedSampleRatio);
 
-% Confidence of Green light for the legacy PR path
-outputConfidenceG = usedSampleRatio^2;
+% PR confidence is calculated below from the same waveform used for peaks.
+outputConfidenceG = single(0);
 
 % Confidence of Red light / SpO2 path
 validR = is_signal_valid(ppgFilteredR);
@@ -152,33 +156,34 @@ end
 
 if PR > 0
     meanDeltaPeak = single(60) * single(samplingRate) / PR;
-    [maxCorrValueR, corrValuesR]=a_corr(acR, round(meanDeltaPeak*0.9), round(meanDeltaPeak*1.1));
-    [maxCorrValueIR, corrValuesIR]=a_corr(acIR, round(meanDeltaPeak*0.9), round(meanDeltaPeak*1.1));
-    [maxCorrValueG, corrValuesG]=a_corr(acG, round(meanDeltaPeak*0.9), round(meanDeltaPeak*1.1));
-    outputSQI([4,5,6]) = [maxCorrValueR,maxCorrValueIR,maxCorrValueG];
-
-    lowLagIndex = min(max(round(meanDeltaPeak*0.1), 1), length(corrValuesG));
-    lowLagCorrValueG = corrValuesG(lowLagIndex);
-
-    greenCorrPenalty = single(1);
-    if maxCorrValueG < 0.75
-        greenCorrPenalty = greenCorrPenalty * max(maxCorrValueG / single(0.75), single(0.2));
-    end
-    if lowLagCorrValueG < 0.5
-        greenCorrPenalty = greenCorrPenalty * max(lowLagCorrValueG / single(0.5), single(0.2));
-    end
-
-    % Startup windows are noisier after moving to 3 s. Use a soft penalty
-    % instead of hard-zeroing the PR confidence so raw PR can still seed the
-    % fix and smoothing stages.
-    if outputCounter <= 8
-        outputConfidenceG = outputConfidenceG * max(greenCorrPenalty, single(0.45));
+    [maxCorrValueR, ~]=a_corr(acR, round(meanDeltaPeak*0.9), round(meanDeltaPeak*1.1));
+    [maxCorrValueIR, ~]=a_corr(acIR, round(meanDeltaPeak*0.9), round(meanDeltaPeak*1.1));
+    maxPrLag = min(numel(ppgExpandedG)-2, round(meanDeltaPeak*1.1));
+    minPrLag = max(1, round(meanDeltaPeak*0.9));
+    if minPrLag <= maxPrLag
+        [maxCorrValueG, ~] = a_corr(ppgExpandedG, minPrLag, maxPrLag);
     else
-        outputConfidenceG = outputConfidenceG * greenCorrPenalty;
+        maxCorrValueG = single(0);
     end
-
-    if maxCorrValueR < 0.25 || maxCorrValueIR < 0.25 || bodyMove > 15
-        outputConfidenceG = outputConfidenceG * single(0.4);
+    outputSQI([4,5,6]) = [maxCorrValueR,maxCorrValueIR,maxCorrValueG];
+    if ~isfinite(maxCorrValueG), maxCorrValueG = single(0); end
+    periodicity = clamp01((single(maxCorrValueG) - single(0.20)) / single(0.65));
+    intervals = diff(peakLocG1);
+    intervalCount = min(numel(intervals), 4);
+    recentIntervals = intervals(end-intervalCount+1:end);
+    medianInterval = median(recentIntervals);
+    if medianInterval > 0
+        intervalVariation = median(abs(recentIntervals - medianInterval)) / medianInterval;
+        intervalQuality = clamp01(single(1) - single(intervalVariation) / single(0.20));
+    else
+        intervalQuality = single(0);
+    end
+    outlierRatio = single(prOutlierCount) / single(numel(ppgExpandedG));
+    artifactPenalty = clamp01(single(1) - max(single(0), outlierRatio - single(0.10)));
+    outputConfidenceG = (single(0.15) + single(0.65) * periodicity + ...
+        single(0.20) * intervalQuality) * artifactPenalty;
+    if bodyMove > 15
+        outputConfidenceG = outputConfidenceG * single(0.6);
     end
 else
     outputConfidenceG = single(0);
@@ -187,14 +192,40 @@ end
 outputConfidenceR = confidence;
 % outputConfidenceR = 1;
 
-if outputConfidenceG > 0.6
-    outputConfidenceG = outputConfidenceG * 0.5 + previousConfidenceG * 0.5;
+if PR <= 0
+    outputConfidenceG = single(0);
+elseif outputConfidenceG < previousConfidenceG
+    % Reject deteriorating evidence quickly; recover gradually when it improves.
+    outputConfidenceG = single(0.7) * outputConfidenceG + single(0.3) * previousConfidenceG;
 else
-    outputConfidenceG = min(outputConfidenceG, previousConfidenceG);
+    outputConfidenceG = single(0.25) * outputConfidenceG + single(0.75) * previousConfidenceG;
 end
 previousConfidenceG = outputConfidenceG;
 [trackedPR, trackedConfidence] = update_tracked_pr_state(trackedPR, trackedConfidence, PR, outputConfidenceG, bodyMove);
 
+end
+
+function [outputSignal, spikeCount] = despike_isolated_samples(inputSignal)
+% Isolated acquisition spikes otherwise contaminate the moving DC estimate
+% and create an artificial pulse after bandpass filtering. Estimate the
+% typical sample-to-sample change robustly and interpolate only sharp,
+% isolated extrema; gradual level changes are left for the DC estimator.
+outputSignal = inputSignal;
+spikeCount = 0;
+if numel(inputSignal) < 3, return; end
+stepScale = median(abs(diff(inputSignal)));
+threshold = max(single(8) * single(stepScale), single(1e-6));
+for idx = 2:numel(inputSignal)-1
+    left = inputSignal(idx-1);
+    middle = inputSignal(idx);
+    right = inputSignal(idx+1);
+    residual = middle - (left + right) * single(0.5);
+    if abs(residual) > threshold && abs(middle-left) > threshold && ...
+            abs(middle-right) > threshold && (middle-left)*(middle-right) > 0
+        outputSignal(idx) = (left + right) * single(0.5);
+        spikeCount = spikeCount + 1;
+    end
+end
 end
 
 function isValid = is_signal_valid(inputAC)

@@ -8,3 +8,6 @@ codegen/build/
 *.asv
 analysis
 *.xlsx
+*.log
+outputs
+*.ndjson
