@@ -3,3 +3,5 @@
 *.mat
 .DS_Store
 codegen/build/
+*.csv
+*.log

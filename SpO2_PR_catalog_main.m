@@ -13,7 +13,7 @@ function [results, averages, details] = SpO2_PR_catalog_main(recordIDs, options)
 % 仍必须有有效的体动与TXT裁剪参数，MAT仍须列入当前manifest。
 
 %% 常用配置（均可直接在这里修改）
-DEFAULT_RECORD_IDS = "psg_11";
+DEFAULT_RECORD_IDS = "legacy_198";
 CODE_DIR = fileparts(mfilename('fullpath'));
 cfg = struct;
 cfg.CatalogPath = fullfile(CODE_DIR, 'data_catalog.xlsx');
